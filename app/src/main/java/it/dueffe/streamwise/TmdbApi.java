@@ -46,7 +46,12 @@ final class TmdbApi {
         q.put("sort_by","recent".equals(sort)?("tv".equals(type)?"first_air_date.desc":"primary_release_date.desc"):"popularity.desc");
         return mediaList(get("/discover/"+type,q).optJSONArray("results"),type,18);
     }
-    List<Models.Media> newReleases(String type,int page,boolean upcoming) throws Exception{
+    static final class ReleasePage {
+        final List<Models.Media> media;final boolean hasMore;
+        ReleasePage(List<Models.Media> media,boolean hasMore){this.media=media;this.hasMore=hasMore;}
+    }
+    List<Models.Media> newReleases(String type,int page,boolean upcoming) throws Exception{return newReleasesPage(type,page,upcoming).media;}
+    ReleasePage newReleasesPage(String type,int page,boolean upcoming) throws Exception{
         java.time.LocalDate today=java.time.LocalDate.now(TvGuideRepository.ROME);
         Map<String,String> q=new LinkedHashMap<>();q.put("page",String.valueOf(page));q.put("include_adult","false");
         String prefix="tv".equals(type)?"first_air_date":"release_date";
@@ -55,7 +60,18 @@ final class TmdbApi {
         q.put("sort_by",upcoming?("tv".equals(type)?"first_air_date.asc":"primary_release_date.asc"):"popularity.desc");
         if("movie".equals(type)){q.put("region","IT");q.put("with_release_type","3|2|4");}
         else{q.put("include_null_first_air_dates","false");q.put("timezone","Europe/Rome");}
-        List<Models.Media> media=mediaList(get("/discover/"+type,q).optJSONArray("results"),type,20);
+        boolean curated="tv".equals(type)&&upcoming;
+        if(curated){q.put("sort_by","popularity.desc");q.put("with_type","2|4");}
+        int firstPage=curated?(page-1)*3+1:page;
+        List<Models.Media> media=new ArrayList<>();boolean hasMore=false;
+        for(int rawPage=firstPage;rawPage<firstPage+(curated?3:1);rawPage++){
+            q.put("page",String.valueOf(rawPage));JSONObject response=get("/discover/"+type,q);
+            List<Models.Media> batch=mediaList(response.optJSONArray("results"),type,20);
+            if(curated)batch.removeIf(item->!readableLocalizedTitle(item.title)||item.poster.isEmpty());
+            media.addAll(batch);hasMore=rawPage<response.optInt("total_pages");
+            if(!hasMore)break;
+        }
+        media=unique(media);
         if("movie".equals(type)){
             java.time.LocalDate from=upcoming?today.plusDays(1):today.minusDays(60),to=upcoming?today.plusDays(60):today;
             java.util.concurrent.ExecutorService executor=java.util.concurrent.Executors.newFixedThreadPool(4);
@@ -67,8 +83,20 @@ final class TmdbApi {
                 CompletableFuture.allOf(requests.toArray(new CompletableFuture[0])).join();
             }finally{executor.shutdown();}
         }
-        if(upcoming)media.sort(java.util.Comparator.comparing(m->m.releaseDate.isEmpty()?"9999-99-99":m.releaseDate));
-        return media;
+        if(upcoming&&!curated)media.sort(java.util.Comparator.comparing(m->m.releaseDate.isEmpty()?"9999-99-99":m.releaseDate));
+        return new ReleasePage(media,hasMore);
+    }
+    static boolean readableLocalizedTitle(String title){
+        if(title==null||title.trim().isEmpty()||"Titolo senza nome".equals(title))return false;
+        boolean readable=false;
+        for(int offset=0;offset<title.length();){
+            int cp=title.codePointAt(offset);offset+=Character.charCount(cp);
+            if(Character.isLetter(cp)){
+                if(Character.UnicodeScript.of(cp)!=Character.UnicodeScript.LATIN)return false;
+                readable=true;
+            }
+            if(cp>='0'&&cp<='9')readable=true;
+        }return readable;
     }
     static String italianReleaseDate(JSONObject response,java.time.LocalDate from,java.time.LocalDate to){
         JSONArray countries=response.optJSONArray("results");

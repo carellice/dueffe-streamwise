@@ -4604,8 +4604,8 @@ private fun NewReleasesSection(type: String, api: TmdbApi, store: LibraryStore, 
     LaunchedEffect(type, upcoming, catalogReload, reload) {
         paginationJob?.cancel()
         media = emptyList(); page = 1; hasMore = true; loading = true; loadingMore = false; error = false
-        val result = withContext(Dispatchers.IO) { runCatching { api.newReleases(type, 1, upcoming).toList() } }
-        result.onSuccess { media = it; hasMore = it.size == 20 }.onFailure { error = true }
+        val result = withContext(Dispatchers.IO) { runCatching { api.newReleasesPage(type, 1, upcoming) } }
+        result.onSuccess { media = it.media.toList(); hasMore = it.hasMore }.onFailure { error = true }
         loading = false
     }
     val loadMore: () -> Unit = {
@@ -4613,9 +4613,9 @@ private fun NewReleasesSection(type: String, api: TmdbApi, store: LibraryStore, 
             val next = page + 1; val mode = upcoming; val generation = reload; val catalogGeneration = catalogReload
             loadingMore = true
             paginationJob = scope.launch {
-                val result = withContext(Dispatchers.IO) { runCatching { api.newReleases(type, next, mode).toList() } }
+                val result = withContext(Dispatchers.IO) { runCatching { api.newReleasesPage(type, next, mode) } }
                 if (mode == upcoming && generation == reload && catalogGeneration == catalogReload) {
-                    result.onSuccess { page = next; media = (media + it).distinctBy { item -> item.id }; hasMore = it.size == 20 }
+                    result.onSuccess { page = next; media = (media + it.media).distinctBy { item -> item.id }; hasMore = it.hasMore }
                     loadingMore = false
                 }
             }
@@ -4635,7 +4635,10 @@ private fun NewReleasesSection(type: String, api: TmdbApi, store: LibraryStore, 
                 }
                 if (loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 12.dp), color = Crimson)
                 else if (error) TextButton({ reload++ }) { Text("Caricamento non riuscito · Riprova") }
-                else if (visible.isEmpty()) Text("Nessuna uscita disponibile in questo periodo.", color = Muted)
+                else if (visible.isEmpty()) {
+                    Text("Nessuna uscita disponibile in questa selezione.", color = Muted)
+                    if (hasMore) TextButton(loadMore, enabled = !loadingMore) { Text(if (loadingMore) "Caricamento…" else "Cerca altre uscite") }
+                }
             }
         })
     if (expanded) ExpandingPage(origin, onClosed = { expanded = false }) { close ->

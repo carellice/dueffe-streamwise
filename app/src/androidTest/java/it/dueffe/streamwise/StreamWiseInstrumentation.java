@@ -74,6 +74,10 @@ public final class StreamWiseInstrumentation extends Instrumentation {
                 row.setViewVisibility(R.id.widget_seen,android.view.View.GONE);row.setViewVisibility(R.id.widget_reactions,android.view.View.VISIBLE);
                 renderWidget(row,"widget-reactions.png",288,0);
             });
+            check(TmdbApi.readableLocalizedTitle("L’estate di São Paulo — stagione 2"),"Latin titles, accents and punctuation accepted");
+            check(TmdbApi.readableLocalizedTitle("Squid Game"),"localized Asian series remain eligible");
+            check(!TmdbApi.readableLocalizedTitle("東京の物語")&&!TmdbApi.readableLocalizedTitle("사랑 이야기")&&!TmdbApi.readableLocalizedTitle("Series 東京"),"unlocalized titles excluded");
+            check(TmdbApi.readableLocalizedTitle("1899")&&!TmdbApi.readableLocalizedTitle(" ")&&!TmdbApi.readableLocalizedTitle("🎬"),"numeric titles accepted and empty names excluded");
             checkDirectors();
             checkSubscriptions(isolated);
             checkTvGuide();
@@ -94,7 +98,11 @@ public final class StreamWiseInstrumentation extends Instrumentation {
                     check(releases.stream().anyMatch(m->!m.releaseDate.isEmpty()),"new releases have verified dates");
                     for(Models.Media release:releases){if(release.releaseDate.isEmpty())continue;java.time.LocalDate date=java.time.LocalDate.parse(release.releaseDate);check(upcoming?date.isAfter(releaseToday)&&!date.isAfter(releaseToday.plusDays(60)):!date.isAfter(releaseToday)&&!date.isBefore(releaseToday.minusDays(60)),"release dates within selected period");}
                     check(releases.stream().map(m->m.id).distinct().count()==releases.size(),"new releases have unique ids");
+                    if(type.equals("tv")&&upcoming)check(releases.stream().allMatch(m->TmdbApi.readableLocalizedTitle(m.title)&&!m.poster.isEmpty()),"upcoming series all have localized titles and posters");
                 }
+                TmdbApi.ReleasePage upcomingSeries=api.newReleasesPage("tv",1,true);
+                TmdbApi.ReleasePage otherSeries=api.newReleasesPage("tv",2,true);
+                check(upcomingSeries.hasMore&&!otherSeries.media.isEmpty(),"filtered series pagination continues beyond first candidate batch");
                 Models.Media inception=new Models.Media();inception.id="tmdb-movie-27205";inception.tmdbId=27205;
                 Models.Media movieDetail=api.details(inception);
                 check(movieDetail.directors.stream().anyMatch(p->p.id==525&&p.director),"live film director detail");
