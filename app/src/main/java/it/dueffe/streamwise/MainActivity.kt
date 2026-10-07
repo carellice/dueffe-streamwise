@@ -833,6 +833,7 @@ private fun Modifier.sharedSagaBounds(key: String): Modifier {
 
 private data class CatalogRail(val name: String, val genre: TmdbApi.Genre, val media: List<Models.Media>)
 private data class CatalogData(val trending: List<Models.Media>, val featured: List<Models.Media>, val masterpieces: List<Models.Media>, val trueStories: List<Models.Media>, val apocalyptic: List<Models.Media>, val trueCrime: List<Models.Media>, val rails: List<CatalogRail>)
+private const val NEW_RELEASES_RAIL = "Novità"
 private const val MASTERPIECES_RAIL = "Capolavori da scoprire"
 private const val TASTE_RAIL = "Consigliati per te"
 private const val TRUE_STORIES_RAIL = "Storie vere"
@@ -878,6 +879,8 @@ private fun CatalogScreen(tab: Tab, api: TmdbApi, store: LibraryStore, refresh: 
     var expandedRailName by remember(tab) { mutableStateOf<String?>(null) }
     var expandedRailOrigin by remember(tab) { mutableStateOf<Rect?>(null) }
     var reloadVersion by remember(tab) { mutableIntStateOf(0) }
+    val newReleases = rememberNewReleases(type, api, reloadVersion)
+    DisposableEffect(tab) { onDispose { onExpandedChange(false) } }
     var refreshing by remember(tab) { mutableStateOf(false) }
     var masterpiecesPage by remember(tab) { mutableIntStateOf(2) }
     var masterpiecesRefreshing by remember(tab) { mutableStateOf(false) }
@@ -1128,7 +1131,7 @@ private fun CatalogScreen(tab: Tab, api: TmdbApi, store: LibraryStore, refresh: 
                             Icon(painterResource(R.drawable.ic_search), null); Spacer(Modifier.width(9.dp)); Text("Piattaforma, genere e filtri")
                         }
                     }
-                    item { NewReleasesSection(type, api, store, refresh, reloadVersion, onOpen, onAction) }
+                    item { NewReleasesSection(type, newReleases, store, refresh, onOpen, onAction) { bounds -> expandRail(NEW_RELEASES_RAIL, bounds) } }
                     item { MediaRail("Top 10 oggi", data!!.trending.filter { it.id !in hidden }, store, onOpen, onAction, ranked = true, onSeeAll = { expandRail("Top 10 oggi", it) }) }
                     if (likedSeeds.isNotEmpty() && tasteMedia.isNotEmpty()) item {
                         TasteRail(tasteMedia.filter { it.id !in hidden }, store, onOpen, onAction,
@@ -1176,6 +1179,7 @@ private fun CatalogScreen(tab: Tab, api: TmdbApi, store: LibraryStore, refresh: 
         val rail = catalog.rails.firstOrNull { it.name == name }
         val hidden = store.byState("hidden").map { it.id }.toSet()
         val media = when (name) {
+            NEW_RELEASES_RAIL -> newReleases.media
             MASTERPIECES_RAIL -> catalog.masterpieces
             TASTE_RAIL -> tasteMedia
             TRUE_STORIES_RAIL -> catalog.trueStories
@@ -1185,15 +1189,16 @@ private fun CatalogScreen(tab: Tab, api: TmdbApi, store: LibraryStore, refresh: 
             else -> rail?.media ?: emptyList()
         }.filter { it.id !in hidden }
         ExpandingPage(expandedRailOrigin, onClosed = ::dismissExpandedRail) { close -> CatalogExpandedScreen(
-            title = name,
+            title = if (name == NEW_RELEASES_RAIL) "Novità · ${if (newReleases.upcoming) "In arrivo" else "Appena usciti"}" else name,
             media = media,
             store = store,
-            loadingMore = when (name) { MASTERPIECES_RAIL -> masterpiecesLoadingMore; TASTE_RAIL -> tasteLoadingMore; TRUE_STORIES_RAIL -> trueStoriesLoadingMore; TRUE_CRIME_RAIL -> trueCrimeLoadingMore; APOCALYPTIC_RAIL -> apocalypticLoadingMore; else -> rail != null && loadingRail == rail.name },
-            refreshing = when (name) { MASTERPIECES_RAIL -> masterpiecesRefreshing; TASTE_RAIL -> tasteRefreshing; TRUE_STORIES_RAIL -> trueStoriesRefreshing; TRUE_CRIME_RAIL -> trueCrimeRefreshing; APOCALYPTIC_RAIL -> apocalypticRefreshing; else -> false },
+            loadingMore = when (name) { NEW_RELEASES_RAIL -> newReleases.loadingMore; MASTERPIECES_RAIL -> masterpiecesLoadingMore; TASTE_RAIL -> tasteLoadingMore; TRUE_STORIES_RAIL -> trueStoriesLoadingMore; TRUE_CRIME_RAIL -> trueCrimeLoadingMore; APOCALYPTIC_RAIL -> apocalypticLoadingMore; else -> rail != null && loadingRail == rail.name },
+            refreshing = when (name) { NEW_RELEASES_RAIL -> newReleases.loading; MASTERPIECES_RAIL -> masterpiecesRefreshing; TASTE_RAIL -> tasteRefreshing; TRUE_STORIES_RAIL -> trueStoriesRefreshing; TRUE_CRIME_RAIL -> trueCrimeRefreshing; APOCALYPTIC_RAIL -> apocalypticRefreshing; else -> false },
             onDismiss = close,
             onOpen = onOpen,
             onAction = onAction,
             onLoadMore = when {
+                name == NEW_RELEASES_RAIL && newReleases.hasMore -> newReleases.loadMore
                 name == MASTERPIECES_RAIL -> ::loadMoreMasterpieces
                 name == TASTE_RAIL && tasteHasMore -> ::loadMoreTaste
                 name == TRUE_STORIES_RAIL && trueStoriesHasMore -> ::loadMoreTrueStories
@@ -1202,7 +1207,8 @@ private fun CatalogScreen(tab: Tab, api: TmdbApi, store: LibraryStore, refresh: 
                 rail != null -> { { loadMoreRail(rail) } }
                 else -> null
             },
-            onRefresh = when (name) { MASTERPIECES_RAIL -> ::refreshMasterpieces; TASTE_RAIL -> ::refreshTaste; TRUE_STORIES_RAIL -> ::refreshTrueStories; TRUE_CRIME_RAIL -> ::refreshTrueCrime; APOCALYPTIC_RAIL -> ::refreshApocalyptic; else -> null }
+            releaseDates = name == NEW_RELEASES_RAIL,
+            onRefresh = when (name) { NEW_RELEASES_RAIL -> newReleases.retry; MASTERPIECES_RAIL -> ::refreshMasterpieces; TASTE_RAIL -> ::refreshTaste; TRUE_STORIES_RAIL -> ::refreshTrueStories; TRUE_CRIME_RAIL -> ::refreshTrueCrime; APOCALYPTIC_RAIL -> ::refreshApocalyptic; else -> null }
         ) }
     }
 }
@@ -4587,8 +4593,13 @@ private fun releaseLabel(media: Models.Media): String = runCatching {
     "Uscita: $formatted"
 }.getOrDefault("Data da confermare")
 
+private data class NewReleasesState(
+    val media: List<Models.Media>, val upcoming: Boolean, val loading: Boolean, val loadingMore: Boolean,
+    val error: Boolean, val hasMore: Boolean, val onUpcoming: (Boolean) -> Unit, val loadMore: () -> Unit, val retry: () -> Unit
+)
+
 @Composable
-private fun NewReleasesSection(type: String, api: TmdbApi, store: LibraryStore, refresh: Int, catalogReload: Int, onOpen: (Models.Media) -> Unit, onAction: (Models.Media) -> Unit) {
+private fun rememberNewReleases(type: String, api: TmdbApi, catalogReload: Int): NewReleasesState {
     var upcoming by remember(type) { mutableStateOf(false) }
     var media by remember(type) { mutableStateOf<List<Models.Media>>(emptyList()) }
     var loading by remember(type) { mutableStateOf(true) }
@@ -4597,8 +4608,6 @@ private fun NewReleasesSection(type: String, api: TmdbApi, store: LibraryStore, 
     var page by remember(type) { mutableIntStateOf(1) }
     var hasMore by remember(type) { mutableStateOf(true) }
     var reload by remember(type) { mutableIntStateOf(0) }
-    var expanded by remember(type) { mutableStateOf(false) }
-    var origin by remember(type) { mutableStateOf<Rect?>(null) }
     var paginationJob by remember(type) { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(type, upcoming, catalogReload, reload) {
@@ -4621,29 +4630,29 @@ private fun NewReleasesSection(type: String, api: TmdbApi, store: LibraryStore, 
             }
         }
     }
+    return NewReleasesState(media, upcoming, loading, loadingMore, error, hasMore, { upcoming = it }, loadMore, { reload++ })
+}
+
+@Composable
+private fun NewReleasesSection(type: String, state: NewReleasesState, store: LibraryStore, refresh: Int, onOpen: (Models.Media) -> Unit, onAction: (Models.Media) -> Unit, onSeeAll: (Rect?) -> Unit) {
     val hidden = remember(refresh) { store.byState("hidden").map { it.id }.toSet() }
-    val visible = media.filter { it.id !in hidden }
+    val visible = state.media.filter { it.id !in hidden }
     MediaRail("Novità", visible, store, onOpen, onAction, contentVersion = refresh,
-        releaseDates = true, onSeeAll = if (visible.isNotEmpty()) { { bounds -> origin = bounds; expanded = true } } else null,
-        loadMore = if (hasMore && !loading && visible.isNotEmpty()) loadMore else null, loadingMore = loadingMore,
+        releaseDates = true, onSeeAll = if (visible.isNotEmpty()) onSeeAll else null,
+        loadMore = if (state.hasMore && !state.loading && visible.isNotEmpty()) state.loadMore else null, loadingMore = state.loadingMore,
         headerContent = {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
                 Text(if (type == "movie") "Uscite italiane · cinema e digitale" else "Prime uscite delle serie", color = Muted, fontSize = 12.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(!upcoming, { upcoming = false }, { Text("Appena usciti") })
-                    FilterChip(upcoming, { upcoming = true }, { Text("In arrivo") })
+                    FilterChip(!state.upcoming, { state.onUpcoming(false) }, { Text("Appena usciti") })
+                    FilterChip(state.upcoming, { state.onUpcoming(true) }, { Text("In arrivo") })
                 }
-                if (loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 12.dp), color = Crimson)
-                else if (error) TextButton({ reload++ }) { Text("Caricamento non riuscito · Riprova") }
+                if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 12.dp), color = Crimson)
+                else if (state.error) TextButton(state.retry) { Text("Caricamento non riuscito · Riprova") }
                 else if (visible.isEmpty()) {
                     Text("Nessuna uscita disponibile in questa selezione.", color = Muted)
-                    if (hasMore) TextButton(loadMore, enabled = !loadingMore) { Text(if (loadingMore) "Caricamento…" else "Cerca altre uscite") }
+                    if (state.hasMore) TextButton(state.loadMore, enabled = !state.loadingMore) { Text(if (state.loadingMore) "Caricamento…" else "Cerca altre uscite") }
                 }
             }
         })
-    if (expanded) ExpandingPage(origin, onClosed = { expanded = false }) { close ->
-        CatalogExpandedScreen("Novità · ${if (upcoming) "In arrivo" else "Appena usciti"}", visible, store,
-            loadingMore, loading, close, onOpen, onAction, if (hasMore) loadMore else null,
-            onRefresh = { reload++ }, releaseDates = true)
-    }
 }
