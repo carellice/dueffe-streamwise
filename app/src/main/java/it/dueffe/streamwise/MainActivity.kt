@@ -1208,6 +1208,7 @@ private fun CatalogScreen(tab: Tab, api: TmdbApi, store: LibraryStore, refresh: 
                 else -> null
             },
             releaseDates = name == NEW_RELEASES_RAIL,
+            paginationError = name == NEW_RELEASES_RAIL && newReleases.paginationError,
             onRefresh = when (name) { NEW_RELEASES_RAIL -> newReleases.retry; MASTERPIECES_RAIL -> ::refreshMasterpieces; TASTE_RAIL -> ::refreshTaste; TRUE_STORIES_RAIL -> ::refreshTrueStories; TRUE_CRIME_RAIL -> ::refreshTrueCrime; APOCALYPTIC_RAIL -> ::refreshApocalyptic; else -> null }
         ) }
     }
@@ -2733,13 +2734,16 @@ private fun CatalogExpandedScreen(
     onAction: (Models.Media) -> Unit,
     onLoadMore: (() -> Unit)?,
     onRefresh: (() -> Unit)?,
-    releaseDates: Boolean = false
+    releaseDates: Boolean = false,
+    paginationError: Boolean = false
 ) {
     var query by remember { mutableStateOf("") }
     var sort by remember { mutableStateOf(LibrarySort.ORIGINAL) }
     var gridView by remember { mutableStateOf(false) }
     var viewMenuOpen by remember { mutableStateOf(false) }
     val pullToRefreshState = rememberPullToRefreshState()
+    val listState = rememberLazyListState()
+    val gridState = rememberLazyGridState()
     val visible = remember(media, query, sort) {
         val filtered = media.filter { it.title.contains(query.trim(), ignoreCase = true) }
         when (sort) {
@@ -2749,6 +2753,14 @@ private fun CatalogExpandedScreen(
             LibrarySort.OLDEST -> filtered.sortedWith(compareBy<Models.Media> { it.releaseDate.ifBlank { "9999-99-99" } }.thenBy { it.title.lowercase(Locale.ITALY) })
             LibrarySort.RATING -> filtered.sortedWith(compareByDescending<Models.Media> { it.rating }.thenBy { it.title.lowercase(Locale.ITALY) })
         }
+    }
+
+    val atEnd by remember(gridView) { derivedStateOf {
+        if (gridView) gridState.layoutInfo.let { it.totalItemsCount > 0 && (it.visibleItemsInfo.lastOrNull()?.index ?: -1) >= it.totalItemsCount - 2 }
+        else listState.layoutInfo.let { it.totalItemsCount > 0 && (it.visibleItemsInfo.lastOrNull()?.index ?: -1) >= it.totalItemsCount - 2 }
+    } }
+    LaunchedEffect(atEnd, media.size, loadingMore, refreshing, paginationError, onLoadMore != null, query) {
+        if (releaseDates && atEnd && !loadingMore && !refreshing && !paginationError && query.isBlank()) onLoadMore?.invoke()
     }
 
     BackHandler(enabled = true, onBack = onDismiss)
@@ -2817,6 +2829,7 @@ private fun CatalogExpandedScreen(
                 } else if (gridView) {
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(2),
+                        state = gridState,
                         modifier = Modifier.weight(1f).fillMaxWidth().padding(top = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -2824,17 +2837,18 @@ private fun CatalogExpandedScreen(
                     ) {
                         gridItems(visible, key = { it.id }) { item -> SearchPosterCard(item, store.get(item), releaseDates = releaseDates) { onOpen(item) } }
                         if (onLoadMore != null) item(span = { GridItemSpan(maxLineSpan) }) {
-                            CatalogLoadMoreButton(onLoadMore, loadingMore)
+                            CatalogLoadMoreButton(onLoadMore, loadingMore, paginationError)
                         }
                     }
                 } else {
                     LazyColumn(
                         Modifier.weight(1f).fillMaxWidth().padding(top = 12.dp),
+                        state = listState,
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                         contentPadding = PaddingValues(bottom = 12.dp)
                     ) {
                         items(visible, key = { it.id }) { item -> CatalogExpandedRow(item, store.get(item), { onOpen(item) }, { onAction(item) }, releaseDates) }
-                        if (onLoadMore != null) item { CatalogLoadMoreButton(onLoadMore, loadingMore) }
+                        if (onLoadMore != null) item { CatalogLoadMoreButton(onLoadMore, loadingMore, paginationError) }
                     }
                 }
                 }
@@ -2843,7 +2857,7 @@ private fun CatalogExpandedScreen(
 }
 
 @Composable
-private fun CatalogLoadMoreButton(onLoadMore: () -> Unit, loading: Boolean) {
+private fun CatalogLoadMoreButton(onLoadMore: () -> Unit, loading: Boolean, error: Boolean = false) {
     OutlinedButton(
         onClick = onLoadMore,
         enabled = !loading,
@@ -2851,7 +2865,7 @@ private fun CatalogLoadMoreButton(onLoadMore: () -> Unit, loading: Boolean) {
         shape = RoundedCornerShape(18.dp)
     ) {
         if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Crimson)
-        else Text("Mostra altri titoli")
+        else Text(if (error) "Caricamento non riuscito · Riprova" else "Carica altri")
     }
 }
 
@@ -4595,7 +4609,7 @@ private fun releaseLabel(media: Models.Media): String = runCatching {
 
 private data class NewReleasesState(
     val media: List<Models.Media>, val upcoming: Boolean, val loading: Boolean, val loadingMore: Boolean,
-    val error: Boolean, val hasMore: Boolean, val onUpcoming: (Boolean) -> Unit, val loadMore: () -> Unit, val retry: () -> Unit
+    val error: Boolean, val paginationError: Boolean, val hasMore: Boolean, val onUpcoming: (Boolean) -> Unit, val loadMore: () -> Unit, val retry: () -> Unit
 )
 
 @Composable
@@ -4605,6 +4619,7 @@ private fun rememberNewReleases(type: String, api: TmdbApi, catalogReload: Int):
     var loading by remember(type) { mutableStateOf(true) }
     var loadingMore by remember(type) { mutableStateOf(false) }
     var error by remember(type) { mutableStateOf(false) }
+    var paginationError by remember(type) { mutableStateOf(false) }
     var page by remember(type) { mutableIntStateOf(1) }
     var hasMore by remember(type) { mutableStateOf(true) }
     var reload by remember(type) { mutableIntStateOf(0) }
@@ -4612,25 +4627,26 @@ private fun rememberNewReleases(type: String, api: TmdbApi, catalogReload: Int):
     val scope = rememberCoroutineScope()
     LaunchedEffect(type, upcoming, catalogReload, reload) {
         paginationJob?.cancel()
-        media = emptyList(); page = 1; hasMore = true; loading = true; loadingMore = false; error = false
+        media = emptyList(); page = 1; hasMore = true; loading = true; loadingMore = false; error = false; paginationError = false
         val result = withContext(Dispatchers.IO) { runCatching { api.newReleasesPage(type, 1, upcoming) } }
-        result.onSuccess { media = it.media.toList(); hasMore = it.hasMore }.onFailure { error = true }
+        result.onSuccess { media = it.media.toList(); hasMore = it.hasMore; page = it.nextPage }.onFailure { error = true }
         loading = false
     }
     val loadMore: () -> Unit = {
         if (!loading && !loadingMore && hasMore) {
-            val next = page + 1; val mode = upcoming; val generation = reload; val catalogGeneration = catalogReload
-            loadingMore = true
+            val next = page; val mode = upcoming; val generation = reload; val catalogGeneration = catalogReload
+            val existing = media.map { it.id }.toSet()
+            loadingMore = true; paginationError = false
             paginationJob = scope.launch {
-                val result = withContext(Dispatchers.IO) { runCatching { api.newReleasesPage(type, next, mode) } }
+                val result = withContext(Dispatchers.IO) { runCatching { api.newReleasesPage(type, next, mode, existing) } }
                 if (mode == upcoming && generation == reload && catalogGeneration == catalogReload) {
-                    result.onSuccess { page = next; media = (media + it.media).distinctBy { item -> item.id }; hasMore = it.hasMore }
+                    result.onSuccess { page = it.nextPage; media = (media + it.media).distinctBy { item -> item.id }; hasMore = it.hasMore }.onFailure { paginationError = true }
                     loadingMore = false
                 }
             }
         }
     }
-    return NewReleasesState(media, upcoming, loading, loadingMore, error, hasMore, { upcoming = it }, loadMore, { reload++ })
+    return NewReleasesState(media, upcoming, loading, loadingMore, error, paginationError, hasMore, { upcoming = it }, loadMore, { reload++ })
 }
 
 @Composable
@@ -4642,15 +4658,16 @@ private fun NewReleasesSection(type: String, state: NewReleasesState, store: Lib
         loadMore = if (state.hasMore && !state.loading && visible.isNotEmpty()) state.loadMore else null, loadingMore = state.loadingMore,
         headerContent = {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
-                Text(if (type == "movie") "Uscite italiane · cinema e digitale" else "Prime uscite delle serie", color = Muted, fontSize = 12.sp)
+                Text(if (type == "movie") "Uscite italiane · cinema e digitale" else "Serie in Italia · date di prima TV", color = Muted, fontSize = 12.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(!state.upcoming, { state.onUpcoming(false) }, { Text("Appena usciti") })
                     FilterChip(state.upcoming, { state.onUpcoming(true) }, { Text("In arrivo") })
                 }
+                if (state.paginationError) TextButton(state.loadMore) { Text("Caricamento non riuscito · Riprova") }
                 if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 12.dp), color = Crimson)
                 else if (state.error) TextButton(state.retry) { Text("Caricamento non riuscito · Riprova") }
                 else if (visible.isEmpty()) {
-                    Text("Nessuna uscita disponibile in questa selezione.", color = Muted)
+                    Text(if (state.upcoming) "Nessuna uscita confermata per l’Italia nei dati disponibili." else "Nessuna novità disponibile in Italia in questa selezione.", color = Muted)
                     if (state.hasMore) TextButton(state.loadMore, enabled = !state.loadingMore) { Text(if (state.loadingMore) "Caricamento…" else "Cerca altre uscite") }
                 }
             }

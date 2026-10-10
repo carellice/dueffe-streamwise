@@ -27,6 +27,9 @@ final class TmdbApi {
     static final List<Genre> GENRES=java.util.Arrays.asList(new Genre("action","Azione",28,10759),new Genre("comedy","Commedia",35,35),new Genre("drama","Dramma",18,18),new Genre("thriller","Thriller / crime",53,80),new Genre("sci-fi","Sci-fi / fantasy",878,10765),new Genre("horror","Horror",27,0),new Genre("documentary","Documentario",99,99),new Genre("erotic","Erotico",-1,-1));
     static final class Platform { final String id,label; final int providerId; Platform(String id,String label,int providerId){this.id=id;this.label=label;this.providerId=providerId;} }
     static final List<Platform> PLATFORMS=java.util.Arrays.asList(new Platform("netflix","Netflix",8),new Platform("prime-video","Prime Video",119),new Platform("apple-tv-plus","Apple TV+",350),new Platform("disney-plus","Disney+",337),new Platform("paramount-plus","Paramount+",531),new Platform("max","HBO Max",1899));
+    interface RequestClient { JSONObject get(String path,Map<String,String> params) throws Exception; }
+    private RequestClient requestClient;
+    TmdbApi(RequestClient client){this("");requestClient=client;}
     private final String key;
     private String eroticKeywordIds;
     private String horrorKeywordId;
@@ -47,44 +50,76 @@ final class TmdbApi {
         return mediaList(get("/discover/"+type,q).optJSONArray("results"),type,18);
     }
     static final class ReleasePage {
-        final List<Models.Media> media;final boolean hasMore;
-        ReleasePage(List<Models.Media> media,boolean hasMore){this.media=media;this.hasMore=hasMore;}
+        final List<Models.Media> media;final boolean hasMore;final int nextPage;
+        ReleasePage(List<Models.Media> media,boolean hasMore,int nextPage){this.media=media;this.hasMore=hasMore;this.nextPage=nextPage;}
     }
     List<Models.Media> newReleases(String type,int page,boolean upcoming) throws Exception{return newReleasesPage(type,page,upcoming).media;}
     ReleasePage newReleasesPage(String type,int page,boolean upcoming) throws Exception{
+        return newReleasesPage(type,page,upcoming,java.util.Collections.emptySet());
+    }
+    ReleasePage newReleasesPage(String type,int page,boolean upcoming,Set<String> excluded) throws Exception{
         java.time.LocalDate today=java.time.LocalDate.now(TvGuideRepository.ROME);
-        Map<String,String> q=new LinkedHashMap<>();q.put("page",String.valueOf(page));q.put("include_adult","false");
+        java.time.LocalDate from=upcoming?today.plusDays(1):today.minusDays(60),to=upcoming?today.plusDays(60):today;
+        Map<String,String> q=new LinkedHashMap<>();q.put("include_adult","false");
         String prefix="tv".equals(type)?"first_air_date":"release_date";
-        q.put(prefix+".gte",(upcoming?today.plusDays(1):today.minusDays(60)).toString());
-        q.put(prefix+".lte",(upcoming?today.plusDays(60):today).toString());
-        q.put("sort_by",upcoming?("tv".equals(type)?"first_air_date.asc":"primary_release_date.asc"):"popularity.desc");
-        if("movie".equals(type)){q.put("region","IT");q.put("with_release_type","3|2|4");}
-        else{q.put("include_null_first_air_dates","false");q.put("timezone","Europe/Rome");}
-        boolean curated="tv".equals(type)&&upcoming;
-        if(curated){q.put("sort_by","popularity.desc");q.put("with_type","2|4");}
-        int firstPage=curated?(page-1)*3+1:page;
-        List<Models.Media> media=new ArrayList<>();boolean hasMore=false;
-        for(int rawPage=firstPage;rawPage<firstPage+(curated?3:1);rawPage++){
-            q.put("page",String.valueOf(rawPage));JSONObject response=get("/discover/"+type,q);
-            List<Models.Media> batch=mediaList(response.optJSONArray("results"),type,20);
-            if(curated)batch.removeIf(item->!readableLocalizedTitle(item.title)||item.poster.isEmpty());
-            media.addAll(batch);hasMore=rawPage<response.optInt("total_pages");
-            if(!hasMore)break;
-        }
-        media=unique(media);
-        if("movie".equals(type)){
-            java.time.LocalDate from=upcoming?today.plusDays(1):today.minusDays(60),to=upcoming?today.plusDays(60):today;
-            java.util.concurrent.ExecutorService executor=java.util.concurrent.Executors.newFixedThreadPool(4);
-            try{
-                List<CompletableFuture<Void>> requests=new ArrayList<>();
-                for(Models.Media item:media)requests.add(CompletableFuture.runAsync(()->{
-                    try{item.releaseDate=italianReleaseDate(get("/movie/"+item.tmdbId+"/release_dates",null),from,to);}catch(Exception ignored){item.releaseDate="";}
+        q.put(prefix+".gte",from.toString());q.put(prefix+".lte",to.toString());
+        q.put("sort_by","popularity.desc");
+        if("movie".equals(type)){q.put("region","IT");q.put("with_release_type","3|2|4|5|6");}
+        else{q.put("include_null_first_air_dates","false");q.put("timezone","Europe/Rome");q.put("with_type","2|4");}
+        // Merge a dedicated Italian-production search with the regional catalog so
+        // local titles are not buried beneath worldwide popularity rankings.
+        Map<String,String> local=new LinkedHashMap<>(q);local.put("with_origin_country","IT");
+        if("tv".equals(type)){q.put("watch_region","IT");q.put("with_watch_monetization_types","flatrate|free|ads|rent|buy");}
+        List<Models.Media> media=new ArrayList<>();boolean hasMore=true;int cursor=Math.max(1,page);
+        java.util.concurrent.ExecutorService executor=java.util.concurrent.Executors.newFixedThreadPool(4);
+        try{
+            // Consume sparse raw pages until there are usable results. The cursor
+            // records every consumed page, including those rejected by validation.
+            do{
+                List<Models.Media> candidates=new ArrayList<>();boolean more=false;
+                for(Map<String,String> source:java.util.Arrays.asList(local,q)){
+                    source.put("page",String.valueOf(cursor));JSONObject response=get("/discover/"+type,source);
+                    candidates.addAll(mediaList(response.optJSONArray("results"),type,20));
+                    more|=cursor<Math.min(500,response.optInt("total_pages"));
+                }
+                List<CompletableFuture<Models.Media>> requests=new ArrayList<>();
+                for(Models.Media item:unique(candidates))if(!excluded.contains(item.id))requests.add(CompletableFuture.supplyAsync(()->{
+                    try{
+                        if(!readableLocalizedTitle(item.title))return null;
+                        if("movie".equals(type)){
+                            item.releaseDate=italianReleaseDate(get("/movie/"+item.tmdbId+"/release_dates",null),from,to);
+                            if(item.releaseDate.isEmpty())return null;
+                            item.year=item.releaseDate.substring(0,4);
+                        }else{
+                            Map<String,String> params=new LinkedHashMap<>();params.put("append_to_response","watch/providers");
+                            JSONObject detail=get("/tv/"+item.tmdbId,params);
+                            if(!availableInItaly(detail))return null;
+                        }
+                        return item;
+                    }catch(Exception e){throw new java.util.concurrent.CompletionException(e);}
                 },executor));
-                CompletableFuture.allOf(requests.toArray(new CompletableFuture[0])).join();
-            }finally{executor.shutdown();}
+                for(CompletableFuture<Models.Media> request:requests){Models.Media item=request.join();if(item!=null)media.add(item);}
+                media=unique(media);cursor++;hasMore=more;
+            }while(media.size()<20&&hasMore&&!Thread.currentThread().isInterrupted());
+        }finally{executor.shutdownNow();}
+        if(upcoming)media.sort(java.util.Comparator.comparing(m->m.releaseDate));
+        return new ReleasePage(media,hasMore,cursor);
+    }
+    static boolean availableInItaly(JSONObject detail){
+        JSONObject watch=detail.optJSONObject("watch/providers");
+        JSONObject results=watch==null?null:watch.optJSONObject("results");
+        JSONObject italy=results==null?null:results.optJSONObject("IT");
+        if(italy!=null)for(String kind:new String[]{"flatrate","free","ads","rent","buy"}){
+            JSONArray providers=italy.optJSONArray(kind);if(providers!=null&&providers.length()>0)return true;
         }
-        if(upcoming&&!curated)media.sort(java.util.Comparator.comparing(m->m.releaseDate.isEmpty()?"9999-99-99":m.releaseDate));
-        return new ReleasePage(media,hasMore);
+        // Domestic broadcasters also cover series on Italian television, even
+        // when JustWatch has not yet indexed their free catch-up catalog.
+        JSONArray networks=detail.optJSONArray("networks");
+        if(networks!=null)for(int i=0;i<networks.length();i++){
+            JSONObject network=networks.optJSONObject(i);
+            if(network!=null&&"IT".equals(network.optString("origin_country")))return true;
+        }
+        return false;
     }
     static boolean readableLocalizedTitle(String title){
         if(title==null||title.trim().isEmpty()||"Titolo senza nome".equals(title))return false;
@@ -103,7 +138,7 @@ final class TmdbApi {
         if(countries!=null)for(int i=0;i<countries.length();i++){
             JSONObject country=countries.optJSONObject(i);if(country==null||!"IT".equals(country.optString("iso_3166_1")))continue;
             JSONArray dates=country.optJSONArray("release_dates");if(dates==null)continue;
-            for(int type:new int[]{3,2,4}){
+            for(int type:new int[]{3,2,4,5,6}){
                 String chosen="";
                 for(int j=0;j<dates.length();j++){
                     JSONObject entry=dates.optJSONObject(j);if(entry==null||entry.optInt("type")!=type)continue;
@@ -333,6 +368,7 @@ final class TmdbApi {
     }
 
     private JSONObject get(String path,Map<String,String> params) throws Exception{
+        if(requestClient!=null)return requestClient.get(path,params);
         if(!configured())throw new IllegalStateException("missing-key");StringBuilder u=new StringBuilder(BASE).append(path).append("?api_key=").append(enc(key)).append("&language=it-IT");if(params!=null)for(Map.Entry<String,String> e:params.entrySet())u.append('&').append(enc(e.getKey())).append('=').append(enc(e.getValue()));
         HttpURLConnection c=(HttpURLConnection)new URL(u.toString()).openConnection();c.setConnectTimeout(timeout);c.setReadTimeout(timeout);c.setRequestProperty("Accept-Language","it-IT,it;q=0.9");c.setRequestProperty("Accept","application/json");
         int status=c.getResponseCode();InputStream stream=status>=200&&status<300?c.getInputStream():c.getErrorStream();StringBuilder body=new StringBuilder();try(BufferedReader r=new BufferedReader(new InputStreamReader(stream,StandardCharsets.UTF_8))){String line;while((line=r.readLine())!=null)body.append(line);}finally{c.disconnect();}if(status<200||status>=300)throw new IllegalStateException("TMDB "+status);return new JSONObject(body.toString());

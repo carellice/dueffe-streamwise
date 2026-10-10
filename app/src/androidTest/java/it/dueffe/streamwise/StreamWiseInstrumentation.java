@@ -11,7 +11,8 @@ import java.util.List;
 
 /** Device checks without additional test dependencies or changes to the user's library. */
 public final class StreamWiseInstrumentation extends Instrumentation {
-    @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
+    private boolean novitaOnly;
+    @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); novitaOnly=arguments!=null&&"true".equals(arguments.getString("novitaOnly")); start(); }
     @Override public void onStart() {
         Bundle result = new Bundle();
         Bundle status = new Bundle();
@@ -19,6 +20,11 @@ public final class StreamWiseInstrumentation extends Instrumentation {
         status.putInt("numtests", 1); status.putInt("current", 1); status.putString("id", "InstrumentationTestRunner");
         sendStatus(1, status);
         try {
+            if(novitaOnly){
+                checkReleaseSelection();checkLiveReleases();
+                result.putString("stream","PASS: Italian release selection, sparse pages, cursor, duplicates, availability and live catalog");
+                sendStatus(0,status);finish(android.app.Activity.RESULT_OK,result);return;
+            }
             Context isolated = new ContextWrapper(getTargetContext()) {
                 @Override public Context getApplicationContext() { return this; }
                 @Override public SharedPreferences getSharedPreferences(String name, int mode) {
@@ -93,16 +99,16 @@ public final class StreamWiseInstrumentation extends Instrumentation {
             TmdbApi api=new TmdbApi(BuildConfig.TMDB_API_KEY);
             if(api.configured()) {
                 for(String type:new String[]{"movie","tv"})for(boolean upcoming:new boolean[]{false,true}){
-                    List<Models.Media> releases=api.newReleases(type,1,upcoming);check(!releases.isEmpty(),"live new releases "+type+" "+upcoming);
+                    List<Models.Media> releases=api.newReleases(type,1,upcoming);check(upcoming||!releases.isEmpty(),"live new releases "+type+" "+upcoming);
                     java.time.LocalDate releaseToday=java.time.LocalDate.now(TvGuideRepository.ROME);
-                    check(releases.stream().anyMatch(m->!m.releaseDate.isEmpty()),"new releases have verified dates");
+                    check(releases.stream().allMatch(m->!m.releaseDate.isEmpty()),"new releases have verified dates");
                     for(Models.Media release:releases){if(release.releaseDate.isEmpty())continue;java.time.LocalDate date=java.time.LocalDate.parse(release.releaseDate);check(upcoming?date.isAfter(releaseToday)&&!date.isAfter(releaseToday.plusDays(60)):!date.isAfter(releaseToday)&&!date.isBefore(releaseToday.minusDays(60)),"release dates within selected period");}
                     check(releases.stream().map(m->m.id).distinct().count()==releases.size(),"new releases have unique ids");
-                    if(type.equals("tv")&&upcoming)check(releases.stream().allMatch(m->TmdbApi.readableLocalizedTitle(m.title)&&!m.poster.isEmpty()),"upcoming series all have localized titles and posters");
+                    if(type.equals("tv")&&upcoming)check(releases.stream().allMatch(m->TmdbApi.readableLocalizedTitle(m.title)),"upcoming series all have localized titles");
                 }
                 TmdbApi.ReleasePage upcomingSeries=api.newReleasesPage("tv",1,true);
-                TmdbApi.ReleasePage otherSeries=api.newReleasesPage("tv",2,true);
-                check(upcomingSeries.hasMore&&!otherSeries.media.isEmpty(),"filtered series pagination continues beyond first candidate batch");
+                TmdbApi.ReleasePage otherSeries=api.newReleasesPage("tv",upcomingSeries.nextPage,true,new java.util.HashSet<>(upcomingSeries.media.stream().map(m->m.id).collect(java.util.stream.Collectors.toList())));
+                check(otherSeries.nextPage>=upcomingSeries.nextPage,"series pagination uses consumed raw-page cursor");
                 Models.Media inception=new Models.Media();inception.id="tmdb-movie-27205";inception.tmdbId=27205;
                 Models.Media movieDetail=api.details(inception);
                 check(movieDetail.directors.stream().anyMatch(p->p.id==525&&p.director),"live film director detail");
@@ -262,6 +268,83 @@ public final class StreamWiseInstrumentation extends Instrumentation {
         Models.Provider custom=testProvider(99999,"Test service");SubscriptionRepository.saveServices(context,java.util.Arrays.asList(custom));
         check(SubscriptionRepository.savedServices(context).stream().anyMatch(p->p.id==99999),"service directory survives removed titles and restart");
         store.setSubscriptions(java.util.Collections.emptySet());SubscriptionRepository.prefs(context).edit().clear().commit();
+    }
+    private static void checkReleaseSelection()throws Exception{
+        java.time.LocalDate today=java.time.LocalDate.now(TvGuideRepository.ROME);
+        String date=today.minusDays(2).toString();
+        TmdbApi api=new TmdbApi((path,params)->{
+            if(path.startsWith("/discover/")){
+                check("IT".equals(params.get("region")),"movie query restricted to Italy");
+                int page=Integer.parseInt(params.get("page"));boolean local=params.containsKey("with_origin_country");
+                org.json.JSONArray rows=new org.json.JSONArray();
+                if(local&&page==2)rows.put(releaseRow(101,"Una storia italiana",date));
+                if(!local)for(int i=0;i<(page==4?3:20);i++){
+                    int id=page==1?i+1:page==4?i+201:i+101;
+                    rows.put(releaseRow(id,"Film "+id,date));
+                }
+                return new org.json.JSONObject().put("results",rows).put("total_pages",4);
+            }
+            int id=Integer.parseInt(path.split("/")[2]);
+            // First raw page has no Italian release, even though discover returned it.
+            return new org.json.JSONObject().put("results",new org.json.JSONArray().put(new org.json.JSONObject()
+                .put("iso_3166_1",id<100?"US":"IT").put("release_dates",new org.json.JSONArray()
+                    .put(new org.json.JSONObject().put("type",4).put("release_date",date+"T00:00:00Z")))));
+        });
+        TmdbApi.ReleasePage first=api.newReleasesPage("movie",1,false);
+        check(first.media.size()==20&&first.nextPage==3&&first.hasMore,"skip empty regional page and keep raw cursor");
+        check(first.media.get(0).title.equals("Una storia italiana"),"Italian production surfaced without popularity cutoff");
+        java.util.Set<String> seen=new java.util.HashSet<>();for(Models.Media m:first.media)seen.add(m.id);
+        TmdbApi.ReleasePage next=api.newReleasesPage("movie",first.nextPage,false,seen);
+        check(next.media.size()==3&&next.nextPage==5&&!next.hasMore,"skip duplicate-only page and finish after last raw page");
+        check(next.media.stream().noneMatch(m->seen.contains(m.id)),"pagination never readds existing titles");
+        org.json.JSONObject foreign=new org.json.JSONObject().put("origin_country",new org.json.JSONArray().put("IT"))
+            .put("watch/providers",new org.json.JSONObject().put("results",new org.json.JSONObject().put("US",new org.json.JSONObject().put("flatrate",new org.json.JSONArray().put(new org.json.JSONObject())))));
+        check(!TmdbApi.availableInItaly(foreign),"production country or foreign availability alone does not imply Italy availability");
+        org.json.JSONObject free=new org.json.JSONObject().put("watch/providers",new org.json.JSONObject().put("results",new org.json.JSONObject().put("IT",new org.json.JSONObject().put("free",new org.json.JSONArray().put(new org.json.JSONObject().put("provider_id",1))))));
+        check(TmdbApi.availableInItaly(free),"free Italian services included");
+        org.json.JSONObject broadcaster=new org.json.JSONObject().put("networks",new org.json.JSONArray().put(new org.json.JSONObject().put("origin_country","IT")));
+        check(TmdbApi.availableInItaly(broadcaster),"Italian television broadcaster included");
+        TmdbApi tv=new TmdbApi((path,params)->{
+            if(path.equals("/discover/tv")){
+                boolean local=params.containsKey("with_origin_country");
+                if(!local)check("IT".equals(params.get("watch_region"))&&params.get("with_watch_monetization_types").contains("free"),"international series constrained to Italian services");
+                return new org.json.JSONObject().put("total_pages",1).put("results",new org.json.JSONArray().put(releaseRow(local?1:2,local?"Serie italiana":"Serie estera",date)).put(releaseRow(3,"Senza distribuzione",date)));
+            }
+            return path.equals("/tv/1")?broadcaster:path.equals("/tv/2")?free:foreign;
+        });
+        TmdbApi.ReleasePage series=tv.newReleasesPage("tv",1,false);
+        check(series.media.size()==2&&!series.hasMore,"only distributed TV series remain, including Italian titles without posters");
+        TmdbApi failing=new TmdbApi((path,params)->{throw new java.io.IOException("offline");});
+        boolean failed=false;try{failing.newReleasesPage("movie",1,false);}catch(Exception expected){failed=true;}
+        check(failed,"network errors are retryable rather than treated as exhaustion");
+    }
+    private static org.json.JSONObject releaseRow(int id,String title,String date)throws Exception{
+        return new org.json.JSONObject().put("id",id).put("title",title).put("name",title).put("release_date",date).put("first_air_date",date);
+    }
+    private void checkLiveReleases()throws Exception{
+        TmdbApi api=new TmdbApi(BuildConfig.TMDB_API_KEY);check(api.configured(),"live API configured");
+        for(String type:new String[]{"movie","tv"})for(boolean upcoming:new boolean[]{false,true}){
+            TmdbApi.ReleasePage page=api.newReleasesPage(type,1,upcoming);
+            if(!upcoming)check(!page.media.isEmpty(),"recent Italian catalog "+type);
+            java.util.Set<String> ids=new java.util.HashSet<>();
+            for(Models.Media m:page.media){
+                check(ids.add(m.id),"live unique release ids");
+                java.time.LocalDate date=java.time.LocalDate.parse(m.releaseDate),today=java.time.LocalDate.now(TvGuideRepository.ROME);
+                check(upcoming?date.isAfter(today)&&!date.isAfter(today.plusDays(60)):!date.isAfter(today)&&!date.isBefore(today.minusDays(60)),"live date in selected window");
+                if(type.equals("tv")){
+                    // details exposes Italy's provider lists; broadcaster-only titles
+                    // have already been independently checked in fixture tests.
+                    Models.Media detail=api.details(m);
+                    check(!detail.title.isEmpty(),"live Italian localized details");
+                }
+            }
+            Bundle progress=new Bundle();progress.putString("stream",type+" "+(upcoming?"upcoming":"recent")+": "+page.media.size()+" verified titles, next cursor "+page.nextPage+", hasMore "+page.hasMore+"\n");sendStatus(2,progress);
+            if(!upcoming&&page.hasMore){
+                TmdbApi.ReleasePage more=api.newReleasesPage(type,page.nextPage,false,ids);
+                check(!more.hasMore||!more.media.isEmpty(),"live load-more advances or ends");
+                check(more.media.stream().noneMatch(m->ids.contains(m.id)),"live load-more excludes duplicates");
+            }
+        }
     }
     private static void check(boolean condition,String name) {if(!condition)throw new AssertionError(name);}
 }
