@@ -1,6 +1,14 @@
-# StreamWise per Android
+<p align="center">
+  <img src="docs/logo.png" alt="StreamWise" width="128" height="128">
+</p>
 
-Questa è la riscrittura nativa Android della PWA presente in `dueffe-streamwise`. L'interfaccia usa Jetpack Compose e Material 3, senza WebView, React o browser incorporati.
+<h1 align="center">StreamWise per Android</h1>
+
+<p align="center">Cosa guardare, dove e quando. App nativa Kotlin + Jetpack Compose della famiglia Dueffe.</p>
+
+---
+
+Questa è la riscrittura nativa Android della precedente PWA StreamWise. L'interfaccia usa Jetpack Compose e Material 3, senza WebView, React o browser incorporati.
 
 ## Creare l’APK sul Mac
 
