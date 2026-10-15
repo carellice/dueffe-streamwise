@@ -1,0 +1,122 @@
+package it.dueffe.streamwise;
+
+import android.Manifest;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.net.Uri;
+import android.os.Build;
+import androidx.annotation.NonNull;
+import androidx.work.Constraints;
+import androidx.work.Data;
+import androidx.work.ExistingPeriodicWorkPolicy;
+import androidx.work.ExistingWorkPolicy;
+import androidx.work.NetworkType;
+import androidx.work.OneTimeWorkRequest;
+import androidx.work.PeriodicWorkRequest;
+import androidx.work.WorkManager;
+import androidx.work.Worker;
+import androidx.work.WorkerParameters;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.time.LocalDate;
+import java.time.ZonedDateTime;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+
+/** Periodically compares followed titles with TMDB and notifies new episodes, releases and streaming arrivals. */
+public final class ReleaseCheckWorker extends Worker {
+    static final String CHANNEL="followed-releases";
+    private static final String PERIODIC="release-follow-check",NOW="release-follow-check-now",INTERACTIVE="interactive";
+    private static final String STATE_PREFS="followed-releases-state",LAST_CHECK="last-check";
+
+    public ReleaseCheckWorker(@NonNull Context context,@NonNull WorkerParameters params){super(context,params);}
+
+    private static Constraints network(){return new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build();}
+
+    /** Keeps the periodic check alive only while something is followed. */
+    static void schedule(Context c){
+        WorkManager manager=WorkManager.getInstance(c.getApplicationContext());
+        if(ReleaseFollows.prefs(c).getAll().isEmpty()){manager.cancelUniqueWork(PERIODIC);return;}
+        PeriodicWorkRequest request=new PeriodicWorkRequest.Builder(ReleaseCheckWorker.class,2,TimeUnit.HOURS)
+            .setConstraints(network()).build();
+        manager.enqueueUniquePeriodicWork(PERIODIC,ExistingPeriodicWorkPolicy.KEEP,request);
+    }
+    /** Immediate check, e.g. when the app opens; not limited by quiet hours because the user is active. */
+    static void checkNow(Context c){
+        if(ReleaseFollows.prefs(c).getAll().isEmpty())return;
+        OneTimeWorkRequest request=new OneTimeWorkRequest.Builder(ReleaseCheckWorker.class)
+            .setConstraints(network()).setInputData(new Data.Builder().putBoolean(INTERACTIVE,true).build()).build();
+        WorkManager.getInstance(c.getApplicationContext()).enqueueUniqueWork(NOW,ExistingWorkPolicy.REPLACE,request);
+    }
+    /** Called on app start: refreshes follows at most every 30 minutes. */
+    static void refreshOnLaunch(Context c){
+        schedule(c);
+        long last=c.getSharedPreferences(STATE_PREFS,Context.MODE_PRIVATE).getLong(LAST_CHECK,0);
+        if(System.currentTimeMillis()-last>30*60*1000L)checkNow(c);
+    }
+
+    @NonNull @Override public Result doWork(){
+        Context c=getApplicationContext();
+        ZonedDateTime now=ZonedDateTime.now(TvGuideRepository.ROME);
+        // Background checks stay silent at night; the next morning run delivers what was released.
+        if(!getInputData().getBoolean(INTERACTIVE,false)&&(now.getHour()<8||now.getHour()>=23))return Result.success();
+        TmdbApi api=new TmdbApi(BuildConfig.TMDB_API_KEY,15000);
+        if(!api.configured())return Result.success();
+        LocalDate today=now.toLocalDate();boolean failed=false;
+        for(ReleaseFollows.Follow follow:ReleaseFollows.all(c)){
+            if(isStopped())break;
+            if(follow.completed())continue;
+            try{
+                List<ReleaseFollows.Notice> notices=ReleaseFollows.evaluate(follow,api.releaseInfo(follow.media),today);
+                if(ReleaseFollows.update(c,follow))for(ReleaseFollows.Notice notice:notices)notify(c,follow,notice);
+            }catch(Exception e){failed=true;}
+        }
+        c.getSharedPreferences(STATE_PREFS,Context.MODE_PRIVATE).edit().putLong(LAST_CHECK,System.currentTimeMillis()).apply();
+        return failed&&getRunAttemptCount()<2&&getInputData().getBoolean(INTERACTIVE,false)?Result.retry():Result.success();
+    }
+
+    static void ensureChannel(Context c){
+        NotificationChannel channel=new NotificationChannel(CHANNEL,"Uscite seguite",NotificationManager.IMPORTANCE_DEFAULT);
+        channel.setDescription("Nuovi episodi, uscite dei film e arrivi in streaming dei titoli che segui");
+        c.getSystemService(NotificationManager.class).createNotificationChannel(channel);
+    }
+    static boolean notificationsAllowed(Context c){
+        ensureChannel(c);
+        NotificationManager manager=c.getSystemService(NotificationManager.class);
+        NotificationChannel channel=manager.getNotificationChannel(CHANNEL);
+        return (Build.VERSION.SDK_INT<33||c.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED)
+            &&manager.areNotificationsEnabled()&&(channel==null||channel.getImportance()!=NotificationManager.IMPORTANCE_NONE);
+    }
+
+    static void notify(Context c,ReleaseFollows.Follow follow,ReleaseFollows.Notice notice){
+        if(!notificationsAllowed(c))return;
+        Intent open=new Intent(c,MainActivity.class).setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .setData(new Uri.Builder().scheme("streamwise").authority("media").appendPath(follow.media.id).build())
+            .putExtra(MainActivity.EXTRA_OPEN_MEDIA,follow.media.json().toString());
+        PendingIntent content=PendingIntent.getActivity(c,follow.media.id.hashCode(),open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+        Notification.Builder builder=new Notification.Builder(c,CHANNEL).setSmallIcon(R.drawable.ic_notifications)
+            .setContentTitle(notice.title).setContentText(notice.text).setStyle(new Notification.BigTextStyle().bigText(notice.text))
+            .setSubText(follow.series()?"Serie che segui":"Film che segui").setColor(0xFFB51F3D)
+            .setContentIntent(content).setAutoCancel(true).setCategory(Notification.CATEGORY_RECOMMENDATION).setShowWhen(true);
+        Bitmap poster=poster(follow.media.poster);
+        if(poster!=null)builder.setLargeIcon(poster);
+        // One notification per title and kind: a newer episode replaces the previous episode alert.
+        c.getSystemService(NotificationManager.class).notify(follow.media.id,notice.kind.hashCode(),builder.build());
+    }
+    private static Bitmap poster(String url){
+        if(url==null||url.isEmpty())return null;
+        HttpURLConnection connection=null;
+        try{
+            connection=(HttpURLConnection)new URL(url).openConnection();connection.setConnectTimeout(8000);connection.setReadTimeout(8000);
+            try(InputStream stream=connection.getInputStream()){return BitmapFactory.decodeStream(stream);}
+        }catch(Exception e){return null;}finally{if(connection!=null)connection.disconnect();}
+    }
+}

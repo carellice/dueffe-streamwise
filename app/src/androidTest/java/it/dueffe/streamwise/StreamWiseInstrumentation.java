@@ -11,8 +11,8 @@ import java.util.List;
 
 /** Device checks without additional test dependencies or changes to the user's library. */
 public final class StreamWiseInstrumentation extends Instrumentation {
-    private boolean novitaOnly;
-    @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); novitaOnly=arguments!=null&&"true".equals(arguments.getString("novitaOnly")); start(); }
+    private boolean novitaOnly,followOnly;
+    @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); novitaOnly=arguments!=null&&"true".equals(arguments.getString("novitaOnly")); followOnly=arguments!=null&&"true".equals(arguments.getString("followOnly")); start(); }
     @Override public void onStart() {
         Bundle result = new Bundle();
         Bundle status = new Bundle();
@@ -31,6 +31,11 @@ public final class StreamWiseInstrumentation extends Instrumentation {
                     return super.getSharedPreferences("instrumentation-"+name, mode);
                 }
             };
+            checkFollows(isolated);
+            if(followOnly){
+                result.putString("stream","PASS: followed series episodes/binge drops/new seasons/premiere announcements/timezone lag, followed films release/streaming, persistence, unfollow race, live release data\n");
+                sendStatus(0,status);finish(android.app.Activity.RESULT_OK,result);return;
+            }
             isolated.getSharedPreferences("streamwise-native", Context.MODE_PRIVATE).edit().clear().commit();
             Models.Media media = new Models.Media(); media.id="tmdb-tv-123"; media.tmdbId=123; media.mediaType="tv"; media.title="Test";
             List<Models.Season> seasons = new ArrayList<>();
@@ -344,6 +349,78 @@ public final class StreamWiseInstrumentation extends Instrumentation {
                 check(!more.hasMore||!more.media.isEmpty(),"live load-more advances or ends");
                 check(more.media.stream().noneMatch(m->ids.contains(m.id)),"live load-more excludes duplicates");
             }
+        }
+    }
+    private static TmdbApi.ReleaseInfo episodes(int lastSeason,int lastEpisode,String lastDate,int nextSeason,int nextEpisode,String nextDate){
+        TmdbApi.ReleaseInfo info=new TmdbApi.ReleaseInfo();info.status="Returning Series";
+        info.lastSeason=lastSeason;info.lastEpisode=lastEpisode;info.lastAirDate=lastDate;info.lastName="Episodio "+lastEpisode;
+        info.nextSeason=nextSeason;info.nextEpisode=nextEpisode;info.nextAirDate=nextDate;info.nextName="Il ritorno";
+        return info;
+    }
+    private static void checkFollows(Context context)throws Exception{
+        java.time.LocalDate day=java.time.LocalDate.of(2026,10,20);
+        Models.Media show=new Models.Media();show.id="tmdb-tv-77";show.tmdbId=77;show.mediaType="tv";show.title="Serie seguita";
+        ReleaseFollows.Follow f=new ReleaseFollows.Follow();f.media=show;
+        ReleaseFollows.initialize(f,episodes(2,4,"2026-10-13",2,5,"2026-10-27"),day);
+        check(f.initialized&&f.lastSeason==2&&f.lastEpisode==4&&f.nextEpisode==5,"series baseline at follow time");
+        check(ReleaseFollows.evaluate(f,episodes(2,4,"2026-10-13",2,5,"2026-10-27"),day).isEmpty(),"already aired episodes never notified");
+        check(ReleaseFollows.describe(f,day).equals("Prossimo episodio: S2 · E5 martedì 27 ottobre"),"next episode description: "+ReleaseFollows.describe(f,day));
+        check(ReleaseFollows.shortLabel(f,day).equals("S2 · E5 · 27 ott"),"next episode label");
+        java.time.LocalDate release=java.time.LocalDate.of(2026,10,27);
+        List<ReleaseFollows.Notice> notices=ReleaseFollows.evaluate(f,episodes(2,4,"2026-10-13",2,5,"2026-10-27"),release);
+        check(notices.size()==1&&notices.get(0).text.contains("in uscita oggi")&&notices.get(0).text.contains("S2 · E5 «Il ritorno»"),"weekly episode notified on its day despite TMDB lag");
+        check(f.lastEpisode==5&&f.nextSeason==0,"baseline advanced and aired episode no longer upcoming");
+        check(ReleaseFollows.evaluate(f,episodes(2,5,"2026-10-27",2,6,"2026-11-03"),release).isEmpty(),"same episode notified only once");
+        check(ReleaseFollows.evaluate(f,episodes(2,6,"2026-11-04",0,0,""),java.time.LocalDate.of(2026,11,3)).isEmpty(),"episode dated tomorrow in Italy waits");
+        notices=ReleaseFollows.evaluate(f,episodes(2,10,"2026-11-10",0,0,""),java.time.LocalDate.of(2026,11,10));
+        check(notices.size()==1&&notices.get(0).text.startsWith("5 nuovi episodi"),"binge drop grouped in one notification");
+        notices=ReleaseFollows.evaluate(f,episodes(2,10,"2026-11-10",3,1,"2027-02-05"),java.time.LocalDate.of(2026,12,1));
+        check(notices.size()==1&&"season".equals(notices.get(0).kind)&&notices.get(0).text.contains("5 febbraio 2027"),"new season premiere announced");
+        check(ReleaseFollows.evaluate(f,episodes(2,10,"2026-11-10",3,1,"2027-02-05"),java.time.LocalDate.of(2026,12,2)).isEmpty(),"premiere announced only once");
+        notices=ReleaseFollows.evaluate(f,episodes(2,10,"2026-11-10",3,1,"2027-02-05"),java.time.LocalDate.of(2027,2,5));
+        check(notices.size()==1&&notices.get(0).text.startsWith("Inizia la stagione 3"),"season premiere episode notified");
+        ReleaseFollows.Follow restored=ReleaseFollows.Follow.from(new org.json.JSONObject(f.json().toString()));
+        check(restored.lastSeason==3&&restored.lastEpisode==1&&restored.announcedSeason==3&&restored.media.id.equals(show.id),"follow persistence");
+        ReleaseFollows.Follow pending=new ReleaseFollows.Follow();pending.media=show;
+        check(ReleaseFollows.evaluate(pending,episodes(2,4,"2026-10-13",2,5,"2026-10-27"),release).isEmpty()&&pending.initialized&&pending.lastEpisode==5,"offline follow initialized silently by first check");
+
+        Models.Media film=new Models.Media();film.id="tmdb-movie-88";film.tmdbId=88;film.title="Film atteso";
+        org.json.JSONObject movieJson=new org.json.JSONObject("{\"status\":\"Post Production\",\"release_date\":\"2026-11-01\",\"release_dates\":{\"results\":[{\"iso_3166_1\":\"US\",\"release_dates\":[{\"type\":3,\"release_date\":\"2026-11-01T00:00:00.000Z\"}]},{\"iso_3166_1\":\"IT\",\"release_dates\":[{\"type\":4,\"release_date\":\"2027-01-10T00:00:00.000Z\"},{\"type\":3,\"release_date\":\"2026-11-20T00:00:00.000Z\"}]}]}}");
+        TmdbApi.ReleaseInfo movieInfo=TmdbApi.parseReleaseInfo(movieJson,false);
+        check("2026-11-20".equals(movieInfo.theatricalDate)&&"2027-01-10".equals(movieInfo.digitalDate)&&movieInfo.streaming.isEmpty(),"Italian theatrical and digital dates parsed");
+        ReleaseFollows.Follow m=new ReleaseFollows.Follow();m.media=film;
+        ReleaseFollows.initialize(m,movieInfo,day);
+        check(!m.releaseNotified&&"cinema".equals(m.releaseKind)&&ReleaseFollows.describe(m,day).equals("Al cinema dal 20 novembre"),"upcoming film description: "+ReleaseFollows.describe(m,day));
+        check(ReleaseFollows.worthFollowing(film,movieInfo),"upcoming film can be followed");
+        check(ReleaseFollows.evaluate(m,movieInfo,java.time.LocalDate.of(2026,11,19)).isEmpty(),"no film notice before release");
+        notices=ReleaseFollows.evaluate(m,movieInfo,java.time.LocalDate.of(2026,11,20));
+        check(notices.size()==1&&notices.get(0).text.startsWith("Esce oggi al cinema"),"film release day notified");
+        check(ReleaseFollows.evaluate(m,movieInfo,java.time.LocalDate.of(2026,11,21)).isEmpty()&&!m.completed(),"release notified once, still waiting for streaming");
+        org.json.JSONObject streaming=new org.json.JSONObject(movieJson.toString()).put("watch/providers",new org.json.JSONObject("{\"results\":{\"IT\":{\"flatrate\":[{\"provider_id\":8,\"provider_name\":\"Netflix\"}]}}}"));
+        notices=ReleaseFollows.evaluate(m,TmdbApi.parseReleaseInfo(streaming,false),java.time.LocalDate.of(2027,3,1));
+        check(notices.size()==1&&"streaming".equals(notices.get(0).kind)&&notices.get(0).text.contains("Netflix")&&m.completed(),"streaming arrival notified and film completed");
+        check(!ReleaseFollows.worthFollowing(film,TmdbApi.parseReleaseInfo(streaming,false)),"streaming film not proposed for following");
+        ReleaseFollows.Follow late=new ReleaseFollows.Follow();late.media=film;ReleaseFollows.initialize(late,TmdbApi.parseReleaseInfo(streaming,false),day);
+        check(late.completed()&&ReleaseFollows.evaluate(late,TmdbApi.parseReleaseInfo(streaming,false),day).isEmpty(),"already streaming film never notified");
+
+        org.json.JSONObject tvJson=new org.json.JSONObject("{\"status\":\"Ended\",\"last_episode_to_air\":{\"season_number\":5,\"episode_number\":16,\"air_date\":\"2013-09-29\",\"name\":\"Felina\"},\"next_episode_to_air\":null}");
+        TmdbApi.ReleaseInfo ended=TmdbApi.parseReleaseInfo(tvJson,true);
+        check(ended.ended()&&!ended.hasNext()&&ended.lastEpisode==16&&!ReleaseFollows.worthFollowing(show,ended),"ended series parsed and not proposed");
+
+        SharedPreferences prefs=ReleaseFollows.prefs(context);prefs.edit().clear().commit();
+        prefs.edit().putString(show.id,f.json().toString()).commit();
+        check(ReleaseFollows.isFollowed(context,show.id)&&ReleaseFollows.all(context).size()==1,"stored follow listed");
+        prefs.edit().remove(show.id).commit();
+        check(!ReleaseFollows.update(context,f)&&!ReleaseFollows.isFollowed(context,show.id),"check finishing after unfollow does not resurrect it");
+        prefs.edit().clear().commit();
+
+        TmdbApi api=new TmdbApi(BuildConfig.TMDB_API_KEY);
+        if(api.configured()){
+            Models.Media breakingBad=new Models.Media();breakingBad.id="tmdb-tv-1396";breakingBad.tmdbId=1396;breakingBad.mediaType="tv";
+            TmdbApi.ReleaseInfo live=api.releaseInfo(breakingBad);
+            check(live.ended()&&live.lastSeason==5&&live.lastEpisode==16,"live series release data");
+            Models.Media inception=new Models.Media();inception.id="tmdb-movie-27205";inception.tmdbId=27205;
+            check("2010-09-24".equals(api.releaseInfo(inception).theatricalDate),"live Italian theatrical date");
         }
     }
     private static void check(boolean condition,String name) {if(!condition)throw new AssertionError(name);}

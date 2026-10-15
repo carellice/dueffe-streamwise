@@ -98,7 +98,7 @@ final class LibraryStore {
         try{
             JSONArray library=new JSONArray(); for(Models.LibraryEntry e:entries.values())library.put(e.json());
             root.put("format","streamwise-backup"); root.put("version",1); root.put("exportedAt",new Date().toString());
-            root.put("library",library); root.put("genres",new JSONArray(preferredGenres())); root.put("subscriptions",new JSONArray(subscriptions()));
+            root.put("library",library); root.put("genres",new JSONArray(preferredGenres())); root.put("subscriptions",new JSONArray(subscriptions())); root.put("follows",ReleaseFollows.exportJson(context));
         }catch(Exception ignored){}
         try{return root.toString(2);}catch(Exception ignored){return root.toString();}
     }
@@ -110,6 +110,7 @@ final class LibraryStore {
             JSONArray genres=root.optJSONArray("genres");
             prefs.edit().putString("genres",genres==null?"[]":genres.toString()).putBoolean("onboarding-done",true).apply();
             if(root.has("subscriptions"))setSubscriptions(subscriptionIds(String.valueOf(root.opt("subscriptions"))));
+            JSONArray follows=root.optJSONArray("follows");if(follows!=null)ReleaseFollows.importJson(context,follows);
             persist(); return true;
         }catch(Exception ignored){return false;}
     }

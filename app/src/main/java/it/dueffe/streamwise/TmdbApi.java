@@ -345,6 +345,46 @@ final class TmdbApi {
         if(media.backdrop!=null&&!media.backdrop.isEmpty()&&!out.contains(media.backdrop))out.add(0,media.backdrop);
         return out;
     }
+    /** Release state used by followed titles: episode schedule for series, Italian dates and streaming for films. */
+    static final class ReleaseInfo {
+        String status="",lastAirDate="",lastName="",nextAirDate="",nextName="",theatricalDate="",digitalDate="",fallbackDate="";
+        int lastSeason,lastEpisode,nextSeason,nextEpisode;
+        List<Models.Provider> streaming=new ArrayList<>();
+        boolean ended(){return "Ended".equals(status)||"Canceled".equals(status);}
+        boolean hasNext(){return nextSeason>0&&nextEpisode>0;}
+    }
+    ReleaseInfo releaseInfo(Models.Media media) throws Exception{
+        Map<String,String> q=new LinkedHashMap<>();q.put("append_to_response",media.isSeries()?"watch/providers":"release_dates,watch/providers");
+        return parseReleaseInfo(get("/"+media.mediaType+"/"+media.tmdbId,q),media.isSeries());
+    }
+    static ReleaseInfo parseReleaseInfo(JSONObject o,boolean series){
+        ReleaseInfo info=new ReleaseInfo();info.status=o.optString("status");
+        JSONObject watch=o.optJSONObject("watch/providers");JSONObject regions=watch==null?null:watch.optJSONObject("results");JSONObject italy=regions==null?null:regions.optJSONObject("IT");
+        info.streaming=providers(italy==null?null:italy.optJSONArray("flatrate"),"flatrate");
+        if(series){
+            JSONObject last=o.optJSONObject("last_episode_to_air"),next=o.optJSONObject("next_episode_to_air");
+            if(last!=null){info.lastSeason=last.optInt("season_number");info.lastEpisode=last.optInt("episode_number");info.lastAirDate=dateOnly(last.optString("air_date"));info.lastName=last.optString("name");}
+            if(next!=null){info.nextSeason=next.optInt("season_number");info.nextEpisode=next.optInt("episode_number");info.nextAirDate=dateOnly(next.optString("air_date"));info.nextName=next.optString("name");}
+            return info;
+        }
+        info.fallbackDate=dateOnly(o.optString("release_date"));
+        JSONObject releases=o.optJSONObject("release_dates");JSONArray countries=releases==null?null:releases.optJSONArray("results");
+        if(countries!=null)for(int i=0;i<countries.length();i++){
+            JSONObject country=countries.optJSONObject(i);if(country==null||!"IT".equals(country.optString("iso_3166_1")))continue;
+            JSONArray dates=country.optJSONArray("release_dates");if(dates==null)continue;
+            for(int j=0;j<dates.length();j++){
+                JSONObject entry=dates.optJSONObject(j);if(entry==null)continue;
+                String date=dateOnly(entry.optString("release_date"));if(date.isEmpty())continue;int type=entry.optInt("type");
+                if((type==2||type==3)&&(info.theatricalDate.isEmpty()||date.compareTo(info.theatricalDate)<0))info.theatricalDate=date;
+                if(type==4&&(info.digitalDate.isEmpty()||date.compareTo(info.digitalDate)<0))info.digitalDate=date;
+            }
+        }
+        return info;
+    }
+    private static String dateOnly(String raw){
+        if(raw==null||raw.length()<10)return "";
+        try{return java.time.LocalDate.parse(raw.substring(0,10)).toString();}catch(Exception e){return "";}
+    }
     List<Models.Season> seasons(Models.Media media,boolean withEpisodes) throws Exception{
         JSONObject detail=get("/tv/"+media.tmdbId,null);JSONArray a=detail.optJSONArray("seasons");List<Models.Season> out=new ArrayList<>();if(a==null)return out;
         for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);int number=o.optInt("season_number");int count=o.optInt("episode_count");if(number<=0||count<=0)continue;Models.Season s=new Models.Season();s.number=number;s.name=o.optString("name","Stagione "+number);s.episodeCount=count;if(withEpisodes)s.episodes=episodes(media,number);out.add(s);}return out;
@@ -375,7 +415,7 @@ final class TmdbApi {
     }
     private Models.Media mapMedia(JSONObject o,String type){Models.Media m=new Models.Media();m.tmdbId=o.optInt("id");m.id="tmdb-"+type+"-"+m.tmdbId;m.mediaType=type;m.title=o.optString("movie".equals(type)?"title":"name","Titolo senza nome");m.originalTitle=o.optString("movie".equals(type)?"original_title":"original_name",m.title);m.releaseDate=o.optString("tv".equals(type)?"first_air_date":"release_date");m.year=m.releaseDate.length()>=4?m.releaseDate.substring(0,4):"S.D.";m.overview=o.optString("overview","Trama non disponibile.");if(m.overview.isEmpty())m.overview="Trama non disponibile.";m.tagline=o.optString("tagline");m.poster=image(o.optString("poster_path"),"w342");m.backdrop=image(o.optString("backdrop_path"),"w780");m.rating=o.optDouble("vote_average");m.runtime=o.optInt("runtime");JSONArray countries=o.optJSONArray("production_countries");if(countries!=null&&countries.length()>0)m.country=countries.optJSONObject(0).optString("name");else{JSONArray origins=o.optJSONArray("origin_country");if(origins!=null&&origins.length()>0)m.country=origins.optString(0);}JSONArray languages=o.optJSONArray("spoken_languages");if(languages!=null&&languages.length()>0){JSONObject language=languages.optJSONObject(0);m.language=language.optString("name",language.optString("english_name"));}JSONObject collection=o.optJSONObject("belongs_to_collection");if(collection!=null){m.collectionId=collection.optInt("id");m.collectionName=collection.optString("name");}JSONArray er=o.optJSONArray("episode_run_time");if(er!=null&&er.length()>0)m.episodeRuntime=er.optInt(0);JSONArray ids=o.optJSONArray("genre_ids");if(ids!=null)for(int i=0;i<ids.length();i++){int id=ids.optInt(i);m.genreIds.add(id);String label=("tv".equals(type)?TV_GENRES:MOVIE_GENRES).get(id);if(label!=null&&m.genres.size()<3)m.genres.add(label);}JSONArray gs=o.optJSONArray("genres");if(gs!=null){m.genres.clear();m.genreIds.clear();for(int i=0;i<gs.length();i++){JSONObject g=gs.optJSONObject(i);m.genreIds.add(g.optInt("id"));if(m.genres.size()<3)m.genres.add(g.optString("name"));}}return m;}
     private List<Models.Media> mediaList(JSONArray a,String type,int limit){List<Models.Media> out=new ArrayList<>();if(a!=null)for(int i=0;i<Math.min(limit,a.length());i++)out.add(mapMedia(a.optJSONObject(i),type));return out;}
-    private List<Models.Provider> providers(JSONArray a,String kind){List<Models.Provider> out=new ArrayList<>();Set<Integer> seen=new HashSet<>();if(a!=null)for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);int id=o.optInt("provider_id");String name=o.optString("provider_name","Servizio");if("flatrate".equals(kind)&&name.toLowerCase(Locale.ROOT).contains("channel"))continue;if(seen.add(id)){Models.Provider p=new Models.Provider();p.id=id;p.name=name;p.logo=image(o.optString("logo_path"),"w92");p.kind=kind;out.add(p);}}return out;}
+    private static List<Models.Provider> providers(JSONArray a,String kind){List<Models.Provider> out=new ArrayList<>();Set<Integer> seen=new HashSet<>();if(a!=null)for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);int id=o.optInt("provider_id");String name=o.optString("provider_name","Servizio");if("flatrate".equals(kind)&&name.toLowerCase(Locale.ROOT).contains("channel"))continue;if(seen.add(id)){Models.Provider p=new Models.Provider();p.id=id;p.name=name;p.logo=image(o.optString("logo_path"),"w92");p.kind=kind;out.add(p);}}return out;}
     private List<Models.Media> unique(List<Models.Media> in){LinkedHashMap<String,Models.Media> map=new LinkedHashMap<>();for(Models.Media m:in)map.putIfAbsent(m.id,m);return new ArrayList<>(map.values());}
     private static int titleRelevance(String title,String needle){String value=title==null?"":title.trim().toLowerCase(java.util.Locale.ROOT);if(value.equals(needle))return 0;if(value.startsWith(needle))return 1;if(value.contains(needle))return 2;return 3;}
     private static List<String> fuzzyQueries(String query){String value=query.trim();Set<String> out=new java.util.LinkedHashSet<>();out.add(value.substring(0,Math.min(3,value.length())));int middle=value.length()/2;for(int i=Math.max(0,middle-1);i<value.length()-1&&out.size()<3;i++){if(Character.isLetterOrDigit(value.charAt(i))&&Character.isLetterOrDigit(value.charAt(i+1))&&value.charAt(i)!=value.charAt(i+1)){char[] chars=value.toCharArray();char c=chars[i];chars[i]=chars[i+1];chars[i+1]=c;out.add(new String(chars));}}for(int i:new int[]{middle,Math.max(1,value.length()-2)}){if(out.size()>=4)break;if(i>0&&i<value.length()-1&&Character.isLetterOrDigit(value.charAt(i)))out.add(value.substring(0,i)+value.substring(i+1));if(out.size()>=4)break;String neighbors=keyboardNeighbors(value.charAt(i));if(!neighbors.isEmpty()){char[] chars=value.toCharArray();chars[i]=neighbors.charAt(0);out.add(new String(chars));}}return new ArrayList<>(out);}

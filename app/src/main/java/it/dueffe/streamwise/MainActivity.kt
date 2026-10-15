@@ -130,6 +130,7 @@ private val DeepCrimson = Color(0xFFB51F3D)
 private val SoftCrimson = Color(0xFFE27A8D)
 private val LikeGreen = Color(0xFF54D8A2)
 private val DislikeRed = Color(0xFFFF7085)
+private val FollowGold = Color(0xFFFFC266)
 private val imageCache = object : LruCache<String, Bitmap>(32 * 1024) {
     override fun sizeOf(key: String, value: Bitmap): Int = (value.byteCount / 1024).coerceAtLeast(1)
 }
@@ -200,17 +201,25 @@ private data class SagaCollection(val id: Int, val name: String, val movies: Lis
 private fun sagaArtworkKey(collection: SagaCollection) = "saga-${collection.id}::${collection.id}"
 
 class MainActivity : ComponentActivity() {
+    companion object { const val EXTRA_OPEN_MEDIA = "open-media" }
     private var guideRequest by mutableStateOf<Pair<String, Long>?>(null)
-    private fun readGuideIntent(intent: android.content.Intent) {
+    private var mediaRequest by mutableStateOf<Pair<Models.Media, Long>?>(null)
+    private fun readGuideIntent(intent: android.content.Intent, includeMedia: Boolean = true) {
         intent.getStringExtra("tv-guide-date")?.let { date ->
             if (runCatching { java.time.LocalDate.parse(date) }.isSuccess) guideRequest = date to System.nanoTime()
+        }
+        if (includeMedia) intent.getStringExtra(EXTRA_OPEN_MEDIA)?.let { raw ->
+            runCatching { Models.Media.from(org.json.JSONObject(raw)) }.getOrNull()?.takeIf { it.id.isNotEmpty() }?.let { mediaRequest = it to System.nanoTime() }
+            intent.removeExtra(EXTRA_OPEN_MEDIA)
         }
     }
     override fun onNewIntent(intent: android.content.Intent) { super.onNewIntent(intent); readGuideIntent(intent) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        readGuideIntent(intent)
+        // A recreated activity must not reopen the title from the notification that launched it.
+        readGuideIntent(intent, includeMedia = savedInstanceState == null)
+        ReleaseCheckWorker.refreshOnLaunch(this)
         enableEdgeToEdge()
         val store = LibraryStore(this)
         val api = TmdbApi(BuildConfig.TMDB_API_KEY)
@@ -231,6 +240,7 @@ class MainActivity : ComponentActivity() {
                 StreamWiseApp(
                     store, api,
                     guideRequest = guideRequest,
+                    mediaRequest = mediaRequest,
                     backupVersion = backupVersion,
                     showOnboarding = showOnboarding,
                     showTour = showTour,
@@ -335,6 +345,7 @@ private fun StreamWiseApp(
     store: LibraryStore,
     initialApi: TmdbApi,
     guideRequest: Pair<String, Long>?,
+    mediaRequest: Pair<Models.Media, Long>?,
     backupVersion: Int,
     showOnboarding: Boolean,
     showTour: Boolean,
@@ -355,7 +366,10 @@ private fun StreamWiseApp(
             else if (key == "subscriptions" || key?.startsWith("subscription-filter-") == true) refresh++
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
-        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+        val follows = ReleaseFollows.prefs(libraryContext)
+        val followListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> refresh++ }
+        follows.registerOnSharedPreferenceChangeListener(followListener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener); follows.unregisterOnSharedPreferenceChangeListener(followListener) }
     }
     var selected by remember { mutableStateOf<Models.Media?>(null) }
     var action by remember { mutableStateOf<Models.Media?>(null) }
@@ -382,6 +396,12 @@ private fun StreamWiseApp(
         selected = null; action = null; search = false; settings = false; filters = false
         expandedSection = null; selectedSaga = null; advisor = false; advisorRequest = null
         detailPages = emptyList(); closingDetailId = null; catalogExpanded = false
+    } }
+    // Opened from a followed-release notification: show that title's detail above the current tab.
+    LaunchedEffect(mediaRequest) { mediaRequest?.let { (media, _) ->
+        action = null; search = false; settings = false; filters = false
+        expandedSection = null; selectedSaga = null; advisor = false; advisorRequest = null; catalogExpanded = false
+        selectedArtworkKey = null; detailPages = listOf(DetailPage(media, null)); closingDetailId = null; selected = media
     } }
     val artworkBounds = remember { mutableStateMapOf<String, Rect>() }
     val api = remember(initialApi) { initialApi }
@@ -692,6 +712,8 @@ private fun HomeScreen(api: TmdbApi, store: LibraryStore, refresh: Int, modifier
     val saved = remember(refresh) { store.entriesByState("saved").sortedByDescending { it.pinned }.map { it.media } }
     val watched = remember(refresh) { store.byState("watched").toList() }
     val hidden = remember(refresh) { store.byState("hidden").toList() }
+    val context = LocalContext.current
+    val follows = remember(refresh) { ReleaseFollows.all(context) }
     var sagaCollections by remember { mutableStateOf<List<SagaCollection>>(emptyList()) }
     LaunchedEffect(refresh) {
         val seeds = saved.filter { it.collectionId > 0 }.distinctBy { it.collectionId }
@@ -718,6 +740,11 @@ private fun HomeScreen(api: TmdbApi, store: LibraryStore, refresh: Int, modifier
             SubscriptionFilterBar(progressFilter, changeProgressFilter, Modifier.padding(horizontal = 20.dp))
             if (progress.none { progressFilter.includes(it.media, subscriptionData, activeSubscriptions) }) Text("Nessun titolo con questi filtri", color = Muted, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
         }) }
+        if (follows.isNotEmpty()) item {
+            val today = java.time.LocalDate.now(TvGuideRepository.ROME)
+            val labels = follows.associate { it.media.id to ReleaseFollows.shortLabel(it, today) }
+            MediaRail("Uscite che segui", follows.map { it.media }, store, onOpen, onAction, contentVersion = refresh, footerFor = { labels[it.id] })
+        }
         if (saved.isNotEmpty()) item { MediaRail("La mia lista", saved.filter { savedFilter.includes(it, subscriptionData, activeSubscriptions) }, store, onOpen, onAction, contentVersion = refresh, onSeeAll = { onExpand(HomeSection.SAVED, it) }, headerContent = {
             SubscriptionFilterBar(savedFilter, changeSavedFilter, Modifier.padding(horizontal = 20.dp))
             if (saved.none { savedFilter.includes(it, subscriptionData, activeSubscriptions) }) Text("Nessun titolo con questi filtri", color = Muted, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
@@ -1435,7 +1462,7 @@ private fun TasteRail(
 }
 
 @Composable
-private fun MediaRail(title: String, media: List<Models.Media>, store: LibraryStore, onOpen: (Models.Media) -> Unit, onAction: (Models.Media) -> Unit, ranked: Boolean = false, progress: Boolean = false, contentVersion: Int = 0, loadMore: (() -> Unit)? = null, loadingMore: Boolean = false, onSeeAll: ((Rect?) -> Unit)? = null, spacious: Boolean = false, onLongPress: ((Models.Media) -> Unit)? = null, headerContent: (@Composable () -> Unit)? = null, releaseDates: Boolean = false) {
+private fun MediaRail(title: String, media: List<Models.Media>, store: LibraryStore, onOpen: (Models.Media) -> Unit, onAction: (Models.Media) -> Unit, ranked: Boolean = false, progress: Boolean = false, contentVersion: Int = 0, loadMore: (() -> Unit)? = null, loadingMore: Boolean = false, onSeeAll: ((Rect?) -> Unit)? = null, spacious: Boolean = false, onLongPress: ((Models.Media) -> Unit)? = null, headerContent: (@Composable () -> Unit)? = null, releaseDates: Boolean = false, footerFor: ((Models.Media) -> String?)? = null) {
     if (media.isEmpty() && headerContent == null) return
     var seeAllBounds by remember { mutableStateOf<Rect?>(null) }
     Column(Modifier.padding(top = if (spacious) 16.dp else 0.dp, bottom = if (spacious) 10.dp else 0.dp)) {
@@ -1445,7 +1472,7 @@ private fun MediaRail(title: String, media: List<Models.Media>, store: LibrarySt
         }
         headerContent?.invoke()
         LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(media, key = { it.id }) { item -> PosterCard(item, store.get(item), ranked.then(media.indexOf(item) + 1), progress, { onOpen(item) }, { onAction(item) }, contentVersion, onLongPress = onLongPress?.let { handler -> { handler(item) } }, releaseDates = releaseDates) }
+            items(media, key = { it.id }) { item -> PosterCard(item, store.get(item), ranked.then(media.indexOf(item) + 1), progress, { onOpen(item) }, { onAction(item) }, contentVersion, onLongPress = onLongPress?.let { handler -> { handler(item) } }, releaseDates = releaseDates, footerOverride = footerFor?.invoke(item)) }
             if (loadMore != null) item {
                 FilledTonalButton(onClick = loadMore, modifier = Modifier.width(148.dp).height(220.dp), shape = RoundedCornerShape(22.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = Raised)) {
                     if (loadingMore) CircularProgressIndicator(Modifier.size(24.dp), color = Crimson) else {
@@ -1514,7 +1541,7 @@ private fun Modifier.sharedDetailBounds(media: Models.Media, artworkKey: String?
 }
 
 @OptIn(ExperimentalFoundationApi::class)
-@Composable private fun PosterCard(media: Models.Media, entry: Models.LibraryEntry?, rank: Int?, progress: Boolean, open: () -> Unit, actions: () -> Unit, contentVersion: Int = 0, onLongPress: (() -> Unit)? = null, releaseDates: Boolean = false) {
+@Composable private fun PosterCard(media: Models.Media, entry: Models.LibraryEntry?, rank: Int?, progress: Boolean, open: () -> Unit, actions: () -> Unit, contentVersion: Int = 0, onLongPress: (() -> Unit)? = null, releaseDates: Boolean = false, footerOverride: String? = null) {
     val sourceKey = rememberArtworkSourceKey(media)
     val registerSource = LocalRegisterArtworkSource.current
     Column(Modifier.width(if (rank != null) 172.dp else 148.dp).noRippleCombinedClickable(onClick = { registerSource(sourceKey); open() }, onLongClick = { (onLongPress ?: actions)() })) {
@@ -1527,7 +1554,7 @@ private fun Modifier.sharedDetailBounds(media: Models.Media, artworkKey: String?
         val footer = remember(entry?.nextSeason, entry?.nextEpisode, entry?.state, progress, contentVersion) {
             if (progress && entry != null) "S${entry.nextSeason} · E${entry.nextEpisode}" else "${media.year}  ★ ${rating(media.rating)}"
         }
-        Text(if (releaseDates) releaseLabel(media) else footer, color = if (progress) CrimsonSoft else Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+        Text(footerOverride ?: if (releaseDates) releaseLabel(media) else footer, color = if (progress || footerOverride != null) CrimsonSoft else Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
     }
 }
 
@@ -1864,6 +1891,7 @@ private fun DetailScreen(
                                 }
                             }
                         }
+                        FollowReleaseCard(media, api, refreshVersion, onRefresh)
                         Text(media.overview, color = Muted, fontSize = 16.sp, lineHeight = 24.sp, modifier = Modifier.padding(top = 22.dp))
                         if (media.genres.isNotEmpty()) FlowChips(media.genres.toList())
                     }
@@ -2189,6 +2217,9 @@ private fun providerServiceUrl(provider: Models.Provider): String? {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun ActionSheet(media: Models.Media, store: LibraryStore, api: TmdbApi, onDismiss: () -> Unit, onChanged: () -> Unit) {
     val scope = rememberCoroutineScope(); val entry = store.get(media); val state = entry?.state ?: ""; var confirmHide by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val followed = remember(media.id) { ReleaseFollows.isFollowed(context, media.id) }
+    val toggleFollow = rememberFollowToggle(onChanged)
     var pendingReactionAction by remember(media.id) { mutableStateOf<((Boolean) -> Unit)?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Color(0xFF17161A),
@@ -2266,6 +2297,9 @@ private fun providerServiceUrl(provider: Models.Provider): String? {
                     }
                     if (state == "watched") ActionButton("Cambia voto", "Aggiorna il tuo giudizio sul film", R.drawable.ic_thumb_up, LikeGreen) { pendingReactionAction = { liked -> store.setLiked(media, liked); onChanged() } }
                 }
+                ActionButton(if (followed) "Non seguire più" else "Segui le uscite",
+                    if (followed) "Non riceverai più notifiche per questo titolo" else if (media.isSeries) "Ricevi una notifica a ogni nuovo episodio" else "Ricevi una notifica all’uscita e all’arrivo in streaming",
+                    if (followed) R.drawable.ic_notifications else R.drawable.ic_notifications_none, FollowGold) { toggleFollow(media, null) }
                 ActionButton("Non mi interessa", "Suggeriremo meno contenuti simili", R.drawable.ic_visibility_off,
                     MaterialTheme.colorScheme.error, destructive = true) { confirmHide = true }
             }
@@ -4672,4 +4706,101 @@ private fun NewReleasesSection(type: String, state: NewReleasesState, store: Lib
                 }
             }
         })
+}
+
+/** Follows or unfollows a title, asking for the notification permission the first time it is needed. */
+@Composable
+private fun rememberFollowToggle(onChanged: () -> Unit): (Models.Media, TmdbApi.ReleaseInfo?) -> Unit {
+    val context = LocalContext.current
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) Toast.makeText(context, "Senza notifiche non potrò avvisarti delle uscite", Toast.LENGTH_LONG).show()
+        onChanged()
+    }
+    return { media, info ->
+        if (ReleaseFollows.isFollowed(context, media.id)) ReleaseFollows.unfollow(context, media.id)
+        else {
+            ReleaseFollows.follow(context, media, info)
+            if (android.os.Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                permission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+        onChanged()
+    }
+}
+
+@Composable
+private fun FollowReleaseCard(media: Models.Media, api: TmdbApi, refreshVersion: Int, onChanged: () -> Unit) {
+    val context = LocalContext.current
+    var info by remember(media.id) { mutableStateOf<TmdbApi.ReleaseInfo?>(null) }
+    var loaded by remember(media.id) { mutableStateOf(false) }
+    var followed by remember(media.id) { mutableStateOf(ReleaseFollows.isFollowed(context, media.id)) }
+    var notificationsOn by remember { mutableStateOf(ReleaseCheckWorker.notificationsAllowed(context)) }
+    LaunchedEffect(media.id) {
+        info = withContext(Dispatchers.IO) { runCatching { api.releaseInfo(media) }.getOrNull() }
+        loaded = true
+    }
+    LaunchedEffect(media.id, refreshVersion) {
+        followed = ReleaseFollows.isFollowed(context, media.id)
+        notificationsOn = ReleaseCheckWorker.notificationsAllowed(context)
+    }
+    val notificationSettings = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        notificationsOn = ReleaseCheckWorker.notificationsAllowed(context)
+    }
+    val toggle = rememberFollowToggle {
+        followed = ReleaseFollows.isFollowed(context, media.id)
+        notificationsOn = ReleaseCheckWorker.notificationsAllowed(context)
+        onChanged()
+    }
+    val current = info
+    val today = remember { java.time.LocalDate.now(TvGuideRepository.ROME) }
+    // Fresh data describes the title; the stored follow is the fallback while offline.
+    val state = remember(current, followed, refreshVersion) {
+        current?.let { fresh -> ReleaseFollows.Follow().also { it.media = media; ReleaseFollows.initialize(it, fresh, today) } }
+            ?: ReleaseFollows.get(context, media.id)?.takeIf { it.initialized }
+    }
+    val visible = followed || (current != null && ReleaseFollows.worthFollowing(media, current))
+    AnimatedVisibility(visible && (loaded || followed), enter = fadeIn(tween(220)) + androidx.compose.animation.expandVertically(), exit = fadeOut(tween(160)) + androidx.compose.animation.shrinkVertically()) {
+        val accent by animateColorAsState(if (followed) FollowGold else CrimsonSoft, label = "follow-accent")
+        Surface(
+            color = if (followed) FollowGold.copy(alpha = .10f) else Raised,
+            shape = RoundedCornerShape(22.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, if (followed) FollowGold.copy(alpha = .45f) else MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier.fillMaxWidth().padding(top = 14.dp)
+        ) {
+            Column(Modifier.padding(horizontal = 15.dp, vertical = 14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(color = accent.copy(alpha = .16f), shape = CircleShape, modifier = Modifier.size(46.dp)) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(painterResource(if (followed) R.drawable.ic_notifications else R.drawable.ic_notifications_none), null, tint = accent, modifier = Modifier.size(24.dp))
+                        }
+                    }
+                    Column(Modifier.weight(1f).padding(start = 12.dp, end = 8.dp)) {
+                        Text(if (followed) "Stai seguendo" else if (media.isSeries) "Segui la serie" else "Segui l’uscita", color = Ink, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text(state?.let { ReleaseFollows.describe(it, today) } ?: "Dati di uscita non disponibili",
+                            color = if (followed) FollowGold else Muted, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 2.dp))
+                    }
+                    if (followed) OutlinedButton(
+                        onClick = { toggle(media, current) }, shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(horizontal = 12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, FollowGold.copy(alpha = .6f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = FollowGold)
+                    ) { Icon(painterResource(R.drawable.ic_check), null, Modifier.size(17.dp)); Spacer(Modifier.width(5.dp)); Text("Seguito", fontSize = 13.sp) }
+                    else Button(
+                        onClick = { toggle(media, current) }, shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(horizontal = 14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
+                        modifier = Modifier.crimsonGlow(RoundedCornerShape(16.dp), 5.dp)
+                    ) { Icon(painterResource(R.drawable.ic_add), null, Modifier.size(17.dp)); Spacer(Modifier.width(5.dp)); Text("Segui", fontSize = 13.sp) }
+                }
+                Text(
+                    if (media.isSeries) "Ti avviso con una notifica il giorno di uscita di ogni nuovo episodio e quando viene annunciata una nuova stagione."
+                    else "Ti avviso con una notifica il giorno dell’uscita in Italia e quando arriva in streaming in abbonamento.",
+                    color = Muted, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 10.dp)
+                )
+                if (followed && !notificationsOn) Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Le notifiche sono disattivate.", color = MaterialTheme.colorScheme.error, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                    TextButton({
+                        notificationSettings.launch(android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName))
+                    }) { Text("Attiva") }
+                }
+            }
+        }
+    }
 }
