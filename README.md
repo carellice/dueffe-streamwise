@@ -29,6 +29,12 @@ La pubblicazione richiede GitHub CLI (`gh`) con un’autenticazione valida e acc
 
 Se avviato da Terminale di macOS, al termine lo script chiude automaticamente la propria finestra. Per mantenerla aperta durante una sessione puoi usare `STREAMWISE_CLOSE_TERMINAL=0 ./build-apk.command`.
 
+## Creare l’APK su Windows
+
+Requisiti (una tantum): JDK 17 o Android Studio, Android SDK in `%LOCALAPPDATA%\Android\Sdk`, GitHub CLI con `gh auth login -h github.com` e Python 3. Con winget: `winget install EclipseAdoptium.Temurin.17.JDK GitHub.cli Python.Python.3.12`.
+
+Copia dal Mac `signing/`, `.streamwise-signing.properties` e `local.properties`, poi fai doppio clic su `build-apk.cmd` (oppure `.\build-apk.ps1` da PowerShell). Lo script fa esattamente ciò che fa `build-apk.command`: incrementa la versione, compila l’APK firmato in `dist`, crea la release `streamwise-vX.Y.Z` su `carellice/android-app-releases` con `latest.json` e rimuove le release StreamWise precedenti. Accetta gli stessi argomenti e variabili (`.\build-apk.ps1 1.2.0`, `STREAMWISE_DELETE_OLD_RELEASES=0`, `GITHUB_RELEASE_REPO`). In caso di errore la finestra resta aperta e `version.properties` viene ripristinato.
+
 ## Installare sul telefono
 
 Puoi trasferire l’APK dalla cartella `dist` al telefono e aprirlo. Android potrebbe chiederti di consentire l’installazione da quella sorgente. Per aggiornare l’app, crea una nuova versione e apri il nuovo APK: libreria e progressi rimangono salvati.
