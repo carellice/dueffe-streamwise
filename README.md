@@ -54,7 +54,8 @@ STREAMWISE_AVD="Nome_del_simulatore" ./avvia-simulatore.command
 - Cataloghi Film e Serie, Top 10, generi preferiti, sezione True crime e caricamento di altre proposte.
 - Widget ridimensionabile “Prossimi episodi”: mostra le serie da continuare e permette di segnare gli episodi come visti; al termine della serie chiede Mi piace / Non mi piace. Aggiungilo tenendo premuto sulla schermata Home del telefono e scegliendo Widget → StreamWise.
 - “Segui” per serie e film: notifica il giorno di uscita di ogni nuovo episodio (anche con più episodi o una stagione intera pubblicati insieme), l’annuncio della data di una nuova stagione, l’uscita italiana di un film (cinema o digitale) e il suo arrivo in streaming in abbonamento. Si attiva dalla scheda del titolo o tenendo premuto su una locandina; i titoli seguiti compaiono in Home in “Uscite che segui” con la prossima data. Il controllo avviene in background ogni 2 ore (senza notifiche tra le 23 e le 8) e all’apertura dell’app; i titoli seguiti sono inclusi nel backup.
-- Ricerca per titolo con anno facoltativo e ricerca per attore/attrice con filmografia.
+- Ricerca per titolo con anno facoltativo e ricerca per attore/attrice con filmografia. Per impostazione predefinita le filmografie nascondono late show, talk show, reality, telegiornali e apparizioni come sé stessi; si può disattivare da Impostazioni → “Filmografie senza talk show”.
+- “Segui” per attori e registi: dalla pagina della filmografia si ricevono notifiche quando a TMDB viene aggiunto un loro nuovo film o serie (recente o in arrivo). Le persone seguite compaiono in Home in “Persone che segui” e sono incluse nel backup.
 - Dettagli, cast, titoli correlati, streaming, noleggio e acquisto disponibili in Italia.
 - Filtri per piattaforma e genere.
 - Gestione di episodi e stagioni, avanzamento automatico e riapertura delle serie.

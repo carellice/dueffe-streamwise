@@ -41,17 +41,18 @@ public final class ReleaseCheckWorker extends Worker {
 
     private static Constraints network(){return new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build();}
 
+    private static boolean nothingFollowed(Context c){return ReleaseFollows.prefs(c).getAll().isEmpty()&&PersonFollows.prefs(c).getAll().isEmpty();}
     /** Keeps the periodic check alive only while something is followed. */
     static void schedule(Context c){
         WorkManager manager=WorkManager.getInstance(c.getApplicationContext());
-        if(ReleaseFollows.prefs(c).getAll().isEmpty()){manager.cancelUniqueWork(PERIODIC);return;}
+        if(nothingFollowed(c)){manager.cancelUniqueWork(PERIODIC);return;}
         PeriodicWorkRequest request=new PeriodicWorkRequest.Builder(ReleaseCheckWorker.class,2,TimeUnit.HOURS)
             .setConstraints(network()).build();
         manager.enqueueUniquePeriodicWork(PERIODIC,ExistingPeriodicWorkPolicy.KEEP,request);
     }
     /** Immediate check, e.g. when the app opens; not limited by quiet hours because the user is active. */
     static void checkNow(Context c){
-        if(ReleaseFollows.prefs(c).getAll().isEmpty())return;
+        if(nothingFollowed(c))return;
         OneTimeWorkRequest request=new OneTimeWorkRequest.Builder(ReleaseCheckWorker.class)
             .setConstraints(network()).setInputData(new Data.Builder().putBoolean(INTERACTIVE,true).build()).build();
         WorkManager.getInstance(c.getApplicationContext()).enqueueUniqueWork(NOW,ExistingWorkPolicy.REPLACE,request);
@@ -77,6 +78,18 @@ public final class ReleaseCheckWorker extends Worker {
             try{
                 List<ReleaseFollows.Notice> notices=ReleaseFollows.evaluate(follow,api.releaseInfo(follow.media),today);
                 if(ReleaseFollows.update(c,follow))for(ReleaseFollows.Notice notice:notices)notify(c,follow,notice);
+            }catch(Exception e){failed=true;}
+        }
+        boolean hideShows=LibraryStore.hideShowCredits(c);
+        for(PersonFollows.Follow follow:PersonFollows.all(c)){
+            if(isStopped())break;
+            try{
+                org.json.JSONObject credits=api.personCreditsJson(follow.person.id);
+                List<Models.Media> all=api.mapPersonCredits(credits,follow.person.director,false);
+                java.util.Set<String> shows=new java.util.HashSet<>();
+                if(hideShows){for(Models.Media m:all)shows.add(m.id);for(Models.Media m:api.mapPersonCredits(credits,follow.person.director,true))shows.remove(m.id);}
+                List<Models.Media> fresh=PersonFollows.evaluate(follow,all,shows,today);
+                if(PersonFollows.update(c,follow))for(Models.Media media:fresh)notifyPerson(c,follow.person,media,PersonFollows.noticeText(media,today));
             }catch(Exception e){failed=true;}
         }
         c.getSharedPreferences(STATE_PREFS,Context.MODE_PRIVATE).edit().putLong(LAST_CHECK,System.currentTimeMillis()).apply();
@@ -110,6 +123,20 @@ public final class ReleaseCheckWorker extends Worker {
         if(poster!=null)builder.setLargeIcon(poster);
         // One notification per title and kind: a newer episode replaces the previous episode alert.
         c.getSystemService(NotificationManager.class).notify(follow.media.id,notice.kind.hashCode(),builder.build());
+    }
+    static void notifyPerson(Context c,Models.Person person,Models.Media media,String text){
+        if(!notificationsAllowed(c))return;
+        Intent open=new Intent(c,MainActivity.class).setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .setData(new Uri.Builder().scheme("streamwise").authority("media").appendPath(media.id).build())
+            .putExtra(MainActivity.EXTRA_OPEN_MEDIA,media.json().toString());
+        PendingIntent content=PendingIntent.getActivity(c,(person.id+media.id).hashCode(),open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+        Notification.Builder builder=new Notification.Builder(c,CHANNEL).setSmallIcon(R.drawable.ic_notifications)
+            .setContentTitle(person.name).setContentText(text).setStyle(new Notification.BigTextStyle().bigText(text))
+            .setSubText(person.director?"Regista che segui":"Persona che segui").setColor(0xFFB51F3D)
+            .setContentIntent(content).setAutoCancel(true).setCategory(Notification.CATEGORY_RECOMMENDATION).setShowWhen(true);
+        Bitmap poster=poster(media.poster);
+        if(poster!=null)builder.setLargeIcon(poster);
+        c.getSystemService(NotificationManager.class).notify(PersonFollows.key(person),media.id.hashCode(),builder.build());
     }
     private static Bitmap poster(String url){
         if(url==null||url.isEmpty())return null;

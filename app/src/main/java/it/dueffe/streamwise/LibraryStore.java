@@ -88,6 +88,10 @@ final class LibraryStore {
     void toggleGenre(String id){ List<String> g=preferredGenres();if(g.contains(id))g.remove(id);else g.add(id);prefs.edit().putString("genres",new JSONArray(g).toString()).apply(); }
     String themeMode(){return prefs.getString("theme-mode","system");}
     void setThemeMode(String mode){prefs.edit().putString("theme-mode",mode).apply();}
+    boolean hideShowCredits(){return hideShowCredits(context);}
+    void setHideShowCredits(boolean hide){prefs.edit().putBoolean("hide-show-credits",hide).apply();}
+    /** Filmographies skip talk shows, reality and appearances as oneself unless the user turns it off. */
+    static boolean hideShowCredits(Context c){return c.getSharedPreferences("streamwise-native",Context.MODE_PRIVATE).getBoolean("hide-show-credits",true);}
     boolean libraryGridView(String section){return prefs.getBoolean("library-grid-"+section,false);}
     void setLibraryGridView(String section,boolean grid){prefs.edit().putBoolean("library-grid-"+section,grid).apply();}
     boolean onboardingDone(){return prefs.getBoolean("onboarding-done",false);}
@@ -98,7 +102,7 @@ final class LibraryStore {
         try{
             JSONArray library=new JSONArray(); for(Models.LibraryEntry e:entries.values())library.put(e.json());
             root.put("format","streamwise-backup"); root.put("version",1); root.put("exportedAt",new Date().toString());
-            root.put("library",library); root.put("genres",new JSONArray(preferredGenres())); root.put("subscriptions",new JSONArray(subscriptions())); root.put("follows",ReleaseFollows.exportJson(context));
+            root.put("library",library); root.put("genres",new JSONArray(preferredGenres())); root.put("subscriptions",new JSONArray(subscriptions())); root.put("follows",ReleaseFollows.exportJson(context)); root.put("followedPeople",PersonFollows.exportJson(context));
         }catch(Exception ignored){}
         try{return root.toString(2);}catch(Exception ignored){return root.toString();}
     }
@@ -111,6 +115,7 @@ final class LibraryStore {
             prefs.edit().putString("genres",genres==null?"[]":genres.toString()).putBoolean("onboarding-done",true).apply();
             if(root.has("subscriptions"))setSubscriptions(subscriptionIds(String.valueOf(root.opt("subscriptions"))));
             JSONArray follows=root.optJSONArray("follows");if(follows!=null)ReleaseFollows.importJson(context,follows);
+            JSONArray people=root.optJSONArray("followedPeople");if(people!=null)PersonFollows.importJson(context,people);
             persist(); return true;
         }catch(Exception ignored){return false;}
     }

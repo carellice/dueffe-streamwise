@@ -318,11 +318,24 @@ final class TmdbApi {
     List<Models.Media> personCredits(int personId,boolean directedOnly) throws Exception{
         return mapPersonCredits(get("/person/"+personId+"/combined_credits",null),directedOnly);
     }
-    List<Models.Media> mapPersonCredits(JSONObject credits,boolean directedOnly){
+    List<Models.Media> personCredits(int personId,boolean directedOnly,boolean hideShows) throws Exception{
+        return mapPersonCredits(personCreditsJson(personId),directedOnly,hideShows);
+    }
+    JSONObject personCreditsJson(int personId) throws Exception{return get("/person/"+personId+"/combined_credits",null);}
+    List<Models.Media> mapPersonCredits(JSONObject credits,boolean directedOnly){return mapPersonCredits(credits,directedOnly,false);}
+    List<Models.Media> mapPersonCredits(JSONObject credits,boolean directedOnly,boolean hideShows){
         JSONArray a=credits.optJSONArray(directedOnly?"crew":"cast");List<JSONObject> raw=new ArrayList<>();
-        if(a!=null)for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o!=null&&(!directedOnly||"Director".equals(o.optString("job"))))raw.add(o);}
+        if(a!=null)for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o!=null&&(!directedOnly||"Director".equals(o.optString("job")))&&!(hideShows&&isShowCredit(o)))raw.add(o);}
         raw.sort((x,y)->Double.compare(y.optDouble("popularity"),x.optDouble("popularity")));
         List<Models.Media> out=new ArrayList<>();for(JSONObject o:raw){String type=o.optString("media_type");if("movie".equals(type)||"tv".equals(type))out.add(mapMedia(o,type));}return unique(out);
+    }
+    private static final Set<Integer> SHOW_GENRES=new HashSet<>(java.util.Arrays.asList(10763,10764,10767));
+    /** Talk shows, late shows, news, reality and appearances as oneself (award nights, interviews, guest spots). */
+    static boolean isShowCredit(JSONObject o){
+        JSONArray ids=o.optJSONArray("genre_ids");
+        if("tv".equals(o.optString("media_type"))&&ids!=null)for(int i=0;i<ids.length();i++)if(SHOW_GENRES.contains(ids.optInt(i)))return true;
+        String character=o.optString("character").trim().toLowerCase(Locale.ROOT);
+        return character.matches("(self|himself|herself|themselves|themself|se stesso|se stessa|lui stesso|lei stessa)\\b.*")||character.matches(".*\\((self|himself|herself|voice\\s*-\\s*self)\\)|.*\\b(host|guest|presenter|musical guest)$");
     }
     static List<Models.Person> directors(JSONObject credits){
         Map<Integer,Models.Person> out=new LinkedHashMap<>();JSONArray crew=credits==null?null:credits.optJSONArray("crew");

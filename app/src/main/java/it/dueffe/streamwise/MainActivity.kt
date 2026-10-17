@@ -369,7 +369,9 @@ private fun StreamWiseApp(
         val follows = ReleaseFollows.prefs(libraryContext)
         val followListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> refresh++ }
         follows.registerOnSharedPreferenceChangeListener(followListener)
-        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener); follows.unregisterOnSharedPreferenceChangeListener(followListener) }
+        val people = PersonFollows.prefs(libraryContext)
+        people.registerOnSharedPreferenceChangeListener(followListener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener); follows.unregisterOnSharedPreferenceChangeListener(followListener); people.unregisterOnSharedPreferenceChangeListener(followListener) }
     }
     var selected by remember { mutableStateOf<Models.Media?>(null) }
     var action by remember { mutableStateOf<Models.Media?>(null) }
@@ -383,6 +385,7 @@ private fun StreamWiseApp(
     var expandedSectionOrigin by remember { mutableStateOf<Rect?>(null) }
     var selectedSaga by remember { mutableStateOf<SagaCollection?>(null) }
     var closingSaga by remember { mutableStateOf(false) }
+    var followedPerson by remember { mutableStateOf<PersonSelection?>(null) }
     var catalogExpanded by remember { mutableStateOf(false) }
     var advisor by remember { mutableStateOf(false) }
     var advisorFromLibrary by remember { mutableStateOf(false) }
@@ -394,7 +397,7 @@ private fun StreamWiseApp(
     LaunchedEffect(guideRequest) { guideRequest?.let {
         guideDate = it.first; tab = Tab.GUIDE
         selected = null; action = null; search = false; settings = false; filters = false
-        expandedSection = null; selectedSaga = null; advisor = false; advisorRequest = null
+        expandedSection = null; selectedSaga = null; followedPerson = null; advisor = false; advisorRequest = null
         detailPages = emptyList(); closingDetailId = null; catalogExpanded = false
     } }
     // Opened from a followed-release notification: show that title's detail above the current tab.
@@ -434,7 +437,7 @@ private fun StreamWiseApp(
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Raised, Night, Night)))) {
             AnimatedContent(tab, label = "main", transitionSpec = { fadeIn() + slideInVertically { it / 14 } togetherWith fadeOut() }) { target ->
                 when (target) {
-                    Tab.HOME -> HomeScreen(api, store, refresh, Modifier.padding(padding), onOpen = openFromCatalog, onAction = { action = it }, onExplore = { tab = it }, onAdvisor = { advisorFromLibrary = true; advisor = true }, onChanged = { refresh++ }, onOpenSaga = { selectedSaga = it; closingSaga = false; selectedArtworkKey = sagaArtworkKey(it) }, onExpand = { section, bounds -> expandedSectionOrigin = bounds; expandedSection = section })
+                    Tab.HOME -> HomeScreen(api, store, refresh, Modifier.padding(padding), onOpen = openFromCatalog, onAction = { action = it }, onExplore = { tab = it }, onAdvisor = { advisorFromLibrary = true; advisor = true }, onChanged = { refresh++ }, onOpenSaga = { selectedSaga = it; closingSaga = false; selectedArtworkKey = sagaArtworkKey(it) }, onExpand = { section, bounds -> expandedSectionOrigin = bounds; expandedSection = section }, onOpenPerson = { person, bounds -> followedPerson = PersonSelection(person, bounds) })
                     Tab.GUIDE -> key(guideRequest) { TvGuideScreen(api, guideDate, { guideDate = it }, Modifier.padding(padding), backEnabled = detailPages.isEmpty(), onOpen = { selectedArtworkKey = null; openFromCatalog(it) }, onExpandedChange = { catalogExpanded = it }) }
                     Tab.TV, Tab.MOVIE -> CatalogScreen(target, api, store, refresh, Modifier.padding(padding), onOpen = openFromCatalog, onAction = { action = it }, onFilters = { bounds -> filtersOrigin = bounds; filters = true }, onChanged = { refresh++ }, onExpandedChange = { catalogExpanded = it })
                 }
@@ -472,6 +475,9 @@ private fun StreamWiseApp(
                         onOpen = openFromCatalog
                     )
                 }
+            }
+            followedPerson?.let { selection ->
+                PersonCredits(selection.person, api, store, sourceBounds = selection.sourceBounds, dismiss = { followedPerson = null }, onOpen = openFromCatalog, keepOpenOnMediaOpen = true)
             }
             detailPages.forEach { page ->
                 key(page.routeId) {
@@ -703,7 +709,7 @@ private fun ExpressiveNavigation(active: Tab, modifier: Modifier = Modifier, onS
 }
 
 @Composable
-private fun HomeScreen(api: TmdbApi, store: LibraryStore, refresh: Int, modifier: Modifier, onOpen: (Models.Media) -> Unit, onAction: (Models.Media) -> Unit, onExplore: (Tab) -> Unit, onAdvisor: () -> Unit, onChanged: () -> Unit, onOpenSaga: (SagaCollection) -> Unit, onExpand: (HomeSection, Rect?) -> Unit) {
+private fun HomeScreen(api: TmdbApi, store: LibraryStore, refresh: Int, modifier: Modifier, onOpen: (Models.Media) -> Unit, onAction: (Models.Media) -> Unit, onExplore: (Tab) -> Unit, onAdvisor: () -> Unit, onChanged: () -> Unit, onOpenSaga: (SagaCollection) -> Unit, onExpand: (HomeSection, Rect?) -> Unit, onOpenPerson: (Models.Person, Rect?) -> Unit) {
     val subscriptionData = LocalSubscriptionData.current
     val activeSubscriptions = LocalActiveSubscriptions.current.active
     val (progressFilter, changeProgressFilter) = rememberSubscriptionFilter(store, "progress", refresh)
@@ -714,6 +720,7 @@ private fun HomeScreen(api: TmdbApi, store: LibraryStore, refresh: Int, modifier
     val hidden = remember(refresh) { store.byState("hidden").toList() }
     val context = LocalContext.current
     val follows = remember(refresh) { ReleaseFollows.all(context) }
+    val followedPeople = remember(refresh) { PersonFollows.people(context).distinctBy { it.id } }
     var sagaCollections by remember { mutableStateOf<List<SagaCollection>>(emptyList()) }
     LaunchedEffect(refresh) {
         val seeds = saved.filter { it.collectionId > 0 }.distinctBy { it.collectionId }
@@ -745,6 +752,7 @@ private fun HomeScreen(api: TmdbApi, store: LibraryStore, refresh: Int, modifier
             val labels = follows.associate { it.media.id to ReleaseFollows.shortLabel(it, today) }
             MediaRail("Uscite che segui", follows.map { it.media }, store, onOpen, onAction, contentVersion = refresh, footerFor = { labels[it.id] })
         }
+        if (followedPeople.isNotEmpty()) item { PeopleRail(followedPeople, title = "Persone che segui", topPadding = 0.dp, onPersonClick = onOpenPerson) }
         if (saved.isNotEmpty()) item { MediaRail("La mia lista", saved.filter { savedFilter.includes(it, subscriptionData, activeSubscriptions) }, store, onOpen, onAction, contentVersion = refresh, onSeeAll = { onExpand(HomeSection.SAVED, it) }, headerContent = {
             SubscriptionFilterBar(savedFilter, changeSavedFilter, Modifier.padding(horizontal = 20.dp))
             if (saved.none { savedFilter.includes(it, subscriptionData, activeSubscriptions) }) Text("Nessun titolo con questi filtri", color = Muted, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
@@ -1997,9 +2005,9 @@ private fun DetailScreen(
 }
 
 @OptIn(ExperimentalFoundationApi::class)
-@Composable private fun PeopleRail(people: List<Models.Person>, title: String = "Cast", onPersonClick: (Models.Person, Rect?) -> Unit) {
+@Composable private fun PeopleRail(people: List<Models.Person>, title: String = "Cast", topPadding: androidx.compose.ui.unit.Dp = 26.dp, onPersonClick: (Models.Person, Rect?) -> Unit) {
     var fullCastVisible by remember { mutableStateOf(false) }
-    Column(Modifier.padding(top = 26.dp)) {
+    Column(Modifier.padding(top = topPadding)) {
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             TextButton({ fullCastVisible = true }) { Text("Tutti (${people.size})") }
@@ -2023,7 +2031,7 @@ private fun DetailScreen(
         Surface(Modifier.fillMaxWidth().fillMaxHeight(.86f), color = Night, shape = RoundedCornerShape(26.dp)) {
             Column(Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (title == "Regia") "Registi" else "Cast completo", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                    Text(when (title) { "Regia" -> "Registi"; "Cast" -> "Cast completo"; else -> title }, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
                     IconButton({ fullCastVisible = false }) { Icon(painterResource(R.drawable.ic_close), "Chiudi elenco") }
                 }
                 LazyVerticalGrid(columns = GridCells.Fixed(3), modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 12.dp)) {
@@ -2972,8 +2980,24 @@ private fun PersonCredits(
     var pageBounds by remember(person.id) { mutableStateOf<Rect?>(null) }
     val progress = remember(person.id) { Animatable(0f) }
     val close = { if (!closing) closing = true }
+    val context = LocalContext.current
+    var followed by remember(person.id, person.director) { mutableStateOf(PersonFollows.isFollowed(context, person)) }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) Toast.makeText(context, "Senza notifiche non potrò avvisarti dei nuovi titoli", Toast.LENGTH_LONG).show()
+    }
+    val toggleFollow = {
+        if (followed) PersonFollows.unfollow(context, person)
+        else {
+            PersonFollows.follow(context, person)
+            Toast.makeText(context, "Ti avviserò dei nuovi titoli di ${person.name}", Toast.LENGTH_SHORT).show()
+            if (android.os.Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+        followed = PersonFollows.isFollowed(context, person)
+    }
     LaunchedEffect(person.id, person.director) {
-        credits = withContext(Dispatchers.IO) { runCatching { api.personCredits(person.id, person.director).toList() }.getOrDefault(emptyList()) }
+        val hideShows = store.hideShowCredits()
+        credits = withContext(Dispatchers.IO) { runCatching { api.personCredits(person.id, person.director, hideShows).toList() }.getOrDefault(emptyList()) }
     }
     LaunchedEffect(pageBounds != null, closing) {
         if (pageBounds != null) {
@@ -3007,9 +3031,19 @@ private fun PersonCredits(
                     FilledTonalIconButton(close, colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                         Icon(painterResource(R.drawable.ic_back), "Indietro", tint = MaterialTheme.colorScheme.onPrimaryContainer)
                     }
-                    Column(Modifier.padding(start = 14.dp)) {
+                    Column(Modifier.padding(start = 14.dp).weight(1f)) {
                         Text(person.name, style = MaterialTheme.typography.headlineMedium, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(if (person.director) "Film e serie diretti" else "Film e serie", color = CrimsonSoft, fontWeight = FontWeight.Bold)
+                    }
+                    val followAccent by animateColorAsState(if (followed) FollowGold else CrimsonSoft, label = "person-follow-accent")
+                    FilledTonalButton(
+                        toggleFollow,
+                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = followAccent.copy(alpha = .16f), contentColor = followAccent),
+                        contentPadding = PaddingValues(horizontal = 12.dp)
+                    ) {
+                        Icon(painterResource(if (followed) R.drawable.ic_notifications else R.drawable.ic_notifications_none), null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (followed) "Seguito" else "Segui", fontWeight = FontWeight.Bold)
                     }
                 }
                 val loadedCredits = credits
@@ -3412,6 +3446,18 @@ private fun SettingsScreen(
                                     selectedBorderColor = Crimson
                                 )
                             )
+                        }
+                    }
+                }
+                item {
+                    var hideShows by remember { mutableStateOf(store.hideShowCredits()) }
+                    Surface(color = Panel, shape = RoundedCornerShape(24.dp), border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                        Row(Modifier.fillMaxWidth().clickable { hideShows = !hideShows; store.setHideShowCredits(hideShows) }.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                                Text("Filmografie senza talk show", style = MaterialTheme.typography.titleLarge, color = Ink)
+                                Text("Nasconde late show, talk show, reality, telegiornali e apparizioni come sé stessi nelle pagine di attori e registi.", color = Muted, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp))
+                            }
+                            Switch(hideShows, { hideShows = it; store.setHideShowCredits(it) }, colors = SwitchDefaults.colors(checkedTrackColor = Crimson))
                         }
                     }
                 }
