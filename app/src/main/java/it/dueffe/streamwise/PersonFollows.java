@@ -25,7 +25,7 @@ final class PersonFollows {
 
     static final class Follow {
         Models.Person person; long followedAt; boolean initialized; Set<String> known=new LinkedHashSet<>();
-        String key(){return key(person);}
+        String key(){return PersonFollows.key(person);}
         JSONObject json(){
             JSONObject o=new JSONObject();
             Models.put(o,"person",person.json());Models.put(o,"followedAt",followedAt);Models.put(o,"initialized",initialized);
