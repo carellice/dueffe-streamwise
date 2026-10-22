@@ -59,11 +59,15 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -126,11 +130,11 @@ import java.net.URL
 import java.util.Locale
 import java.util.UUID
 
-private val DeepCrimson = Color(0xFFB51F3D)
-private val SoftCrimson = Color(0xFFE27A8D)
-private val LikeGreen = Color(0xFF54D8A2)
-private val DislikeRed = Color(0xFFFF7085)
-private val FollowGold = Color(0xFFFFC266)
+private val DeepCrimson = Sw.Red
+private val SoftCrimson = Sw.Accent
+private val LikeGreen = Color(0xFF3DDC97)
+private val DislikeRed = Color(0xFFFF5C7A)
+private val FollowGold = Sw.Amber
 private val imageCache = object : LruCache<String, Bitmap>(32 * 1024) {
     override fun sizeOf(key: String, value: Bitmap): Int = (value.byteCount / 1024).coerceAtLeast(1)
 }
@@ -143,10 +147,7 @@ private val Panel: Color @Composable get() = MaterialTheme.colorScheme.surface
 private val Raised: Color @Composable get() = MaterialTheme.colorScheme.surfaceVariant
 private val FloatingToolbarHeight = 68.dp
 
-private fun Modifier.crimsonGlow(shape: Shape, elevation: androidx.compose.ui.unit.Dp = 10.dp): Modifier =
-    shadow(elevation, shape, ambientColor = Color(0xAA9B1B43), spotColor = Color(0xAA9B1B43))
-        .background(Brush.radialGradient(listOf(Color(0xFF7C1A39), Color(0xFF4B0D23))), shape)
-        .border(1.dp, Color(0xFF9A3154), shape)
+private fun Modifier.crimsonGlow(shape: Shape, elevation: androidx.compose.ui.unit.Dp = 10.dp): Modifier = brandGlow(shape, elevation)
 
 @Composable
 private fun NoRipple(content: @Composable () -> Unit) {
@@ -154,13 +155,21 @@ private fun NoRipple(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier =
-    clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
+private fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier {
+    val interaction = remember { MutableInteractionSource() }
+    return pressScale(interaction).clickable(interactionSource = interaction, indication = null, onClick = onClick)
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Modifier.noRippleCombinedClickable(onClick: () -> Unit, onLongClick: () -> Unit): Modifier =
-    combinedClickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick, onLongClick = onLongClick)
+private fun Modifier.noRippleCombinedClickable(onClick: () -> Unit, onLongClick: () -> Unit): Modifier {
+    val interaction = remember { MutableInteractionSource() }
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    return pressScale(interaction).combinedClickable(interactionSource = interaction, indication = null, onClick = onClick, onLongClick = {
+        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+        onLongClick()
+    })
+}
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 private val LocalSharedTransitionScope = staticCompositionLocalOf<SharedTransitionScope?> { null }
@@ -172,7 +181,19 @@ private val LocalRegisterArtworkBounds = staticCompositionLocalOf<(String, Rect)
 private val LocalDetailVisibilityScope = staticCompositionLocalOf<AnimatedVisibilityScope?> { null }
 
 private enum class Tab(val label: String, val icon: Int) {
-    HOME("Home", R.drawable.ic_home), TV("Serie", R.drawable.ic_tv), MOVIE("Film", R.drawable.ic_movie), GUIDE("Guida TV", R.drawable.ic_tv_guide)
+    HOME("Home", R.drawable.ic_home), DISCOVER("Scopri", R.drawable.ic_compass), GUIDE("Guida TV", R.drawable.ic_tv_guide), LIBRARY("Libreria", R.drawable.ic_library)
+}
+
+private enum class Kind(val type: String, val label: String) { MOVIE("movie", "Film"), TV("tv", "Serie TV") }
+
+private enum class LibrarySection(val label: String, val home: HomeSection?) {
+    PROGRESS("In corso", HomeSection.PROGRESS),
+    SAVED("Da vedere", HomeSection.SAVED),
+    WATCHED("Visti", HomeSection.WATCHED),
+    FOLLOWING("Seguiti", null),
+    SERVICES("Abbonamenti", null),
+    SAGAS("Saghe", null),
+    HIDDEN("Nascosti", null)
 }
 
 private enum class HomeSection(val title: String, val state: String) {
@@ -259,29 +280,36 @@ class MainActivity : ComponentActivity() {
 private fun StreamWiseTheme(content: @Composable () -> Unit) {
     val dark = true
     val scheme = if (dark) darkColorScheme(
-        primary = DeepCrimson,
+        primary = Color(0xFFFF5A45),
         onPrimary = Color.White,
-        primaryContainer = Color(0xFF571425),
-        onPrimaryContainer = Color(0xFFFFD9DF),
+        primaryContainer = Color(0xFF3B1C18),
+        onPrimaryContainer = Color(0xFFFFDAD2),
         secondary = SoftCrimson,
-        onSecondary = Color(0xFF3D0714),
-        secondaryContainer = Color(0xFF401923),
-        onSecondaryContainer = Color(0xFFFFD9DF),
-        tertiary = Color(0xFFD08A8B),
-        onTertiary = Color(0xFF3E0C0D),
-        tertiaryContainer = Color(0xFF421E20),
-        onTertiaryContainer = Color(0xFFFFDAD8),
-        background = Color(0xFF09090C),
-        onBackground = Color(0xFFF5F1F2),
-        surface = Color(0xFF17161A),
-        onSurface = Color(0xFFF5F1F2),
-        surfaceVariant = Color(0xFF262329),
-        onSurfaceVariant = Color(0xFFC9C0C3),
-        surfaceTint = DeepCrimson,
-        outline = Color(0xFF74545C),
-        outlineVariant = Color(0xFF443137),
-        inversePrimary = Color(0xFF9F1833),
-        error = Color(0xFFE36A7A)
+        onSecondary = Color(0xFF3A0E06),
+        secondaryContainer = Color(0xFF33201C),
+        onSecondaryContainer = Color(0xFFFFDAD2),
+        tertiary = Sw.Amber,
+        onTertiary = Color(0xFF3A2600),
+        tertiaryContainer = Color(0xFF3A2C12),
+        onTertiaryContainer = Color(0xFFFFE3B0),
+        background = Sw.Background,
+        onBackground = Sw.Ink,
+        surface = Sw.Surface,
+        onSurface = Sw.Ink,
+        surfaceVariant = Sw.Raised,
+        onSurfaceVariant = Sw.Muted,
+        surfaceTint = Color.Transparent,
+        surfaceDim = Sw.Background,
+        surfaceBright = Color(0xFF2A2E39),
+        surfaceContainerLowest = Color(0xFF07080C),
+        surfaceContainerLow = Color(0xFF111319),
+        surfaceContainer = Sw.Surface,
+        surfaceContainerHigh = Color(0xFF1A1D26),
+        surfaceContainerHighest = Sw.Raised,
+        outline = Color(0xFF4B505E),
+        outlineVariant = Sw.Outline,
+        inversePrimary = Color(0xFFB3261E),
+        error = Color(0xFFFF6B7D)
     ) else lightColorScheme(
         primary = Color(0xFFA81835),
         onPrimary = Color.White,
@@ -308,10 +336,11 @@ private fun StreamWiseTheme(content: @Composable () -> Unit) {
         error = Color(0xFFBA1A1A)
     )
     val typography = Typography(
-        displaySmall = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-1.2).sp),
-        headlineLarge = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Black, letterSpacing = (-0.7).sp),
-        headlineMedium = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
-        titleLarge = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
+        displaySmall = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-1.4).sp, lineHeight = 40.sp),
+        headlineLarge = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Black, letterSpacing = (-0.9).sp),
+        headlineMedium = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.5).sp),
+        headlineSmall = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.3).sp),
+        titleLarge = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.3).sp),
         titleMedium = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
         labelLarge = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
     )
@@ -356,6 +385,8 @@ private fun StreamWiseApp(
     onImportBackup: () -> Unit
 ) {
     var tab by remember { mutableStateOf(Tab.HOME) }
+    var discoverKind by remember { mutableStateOf(Kind.MOVIE) }
+    var librarySection by remember { mutableStateOf(LibrarySection.PROGRESS) }
     var guideDate by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(java.time.LocalDate.now(TvGuideRepository.ROME).toString()) }
     var refresh by remember { mutableIntStateOf(0) }
     val libraryContext = LocalContext.current
@@ -381,8 +412,6 @@ private fun StreamWiseApp(
     var settingsOrigin by remember { mutableStateOf<Rect?>(null) }
     var filters by remember { mutableStateOf(false) }
     var filtersOrigin by remember { mutableStateOf<Rect?>(null) }
-    var expandedSection by remember { mutableStateOf<HomeSection?>(null) }
-    var expandedSectionOrigin by remember { mutableStateOf<Rect?>(null) }
     var selectedSaga by remember { mutableStateOf<SagaCollection?>(null) }
     var closingSaga by remember { mutableStateOf(false) }
     var followedPerson by remember { mutableStateOf<PersonSelection?>(null) }
@@ -397,13 +426,13 @@ private fun StreamWiseApp(
     LaunchedEffect(guideRequest) { guideRequest?.let {
         guideDate = it.first; tab = Tab.GUIDE
         selected = null; action = null; search = false; settings = false; filters = false
-        expandedSection = null; selectedSaga = null; followedPerson = null; advisor = false; advisorRequest = null
+        selectedSaga = null; followedPerson = null; advisor = false; advisorRequest = null
         detailPages = emptyList(); closingDetailId = null; catalogExpanded = false
     } }
     // Opened from a followed-release notification: show that title's detail above the current tab.
     LaunchedEffect(mediaRequest) { mediaRequest?.let { (media, _) ->
         action = null; search = false; settings = false; filters = false
-        expandedSection = null; selectedSaga = null; advisor = false; advisorRequest = null; catalogExpanded = false
+        selectedSaga = null; advisor = false; advisorRequest = null; catalogExpanded = false
         selectedArtworkKey = null; detailPages = listOf(DetailPage(media, null)); closingDetailId = null; selected = media
     } }
     val artworkBounds = remember { mutableStateMapOf<String, Rect>() }
@@ -425,27 +454,61 @@ private fun StreamWiseApp(
             LocalActiveSubscriptions provides ActiveSubscriptions(activeSubscriptions) { store.setSubscriptions(it) },
             LocalSharedTransitionScope provides this@SharedTransitionLayout,
             LocalSharedMediaId provides selected?.id,
-            LocalHiddenArtworkKeys provides (detailPages.filterNot { it.routeId == closingDetailId }.mapNotNull { it.artworkKey } + (selectedSaga?.takeIf { !closingSaga }?.let { listOf(sagaArtworkKey(it)) } ?: emptyList())).toSet(),
+            LocalHiddenArtworkKeys provides (detailPages.mapNotNull { it.artworkKey } + (selectedSaga?.takeIf { !closingSaga }?.let { listOf(sagaArtworkKey(it)) } ?: emptyList())).toSet(),
             LocalClosingArtworkKey provides detailPages.firstOrNull { it.routeId == closingDetailId }?.artworkKey,
             LocalRegisterArtworkSource provides { selectedArtworkKey = it },
             LocalRegisterArtworkBounds provides { key, bounds -> artworkBounds[key] = bounds }
         ) {
-            Scaffold(
-                containerColor = Night,
-                contentWindowInsets = WindowInsets(0, 0, 0, 0)
-            ) { padding ->
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Raised, Night, Night)))) {
-            AnimatedContent(tab, label = "main", transitionSpec = { fadeIn() + slideInVertically { it / 14 } togetherWith fadeOut() }) { target ->
-                when (target) {
-                    Tab.HOME -> HomeScreen(api, store, refresh, Modifier.padding(padding), onOpen = openFromCatalog, onAction = { action = it }, onExplore = { tab = it }, onAdvisor = { advisorFromLibrary = true; advisor = true }, onChanged = { refresh++ }, onOpenSaga = { selectedSaga = it; closingSaga = false; selectedArtworkKey = sagaArtworkKey(it) }, onExpand = { section, bounds -> expandedSectionOrigin = bounds; expandedSection = section }, onOpenPerson = { person, bounds -> followedPerson = PersonSelection(person, bounds) })
-                    Tab.GUIDE -> key(guideRequest) { TvGuideScreen(api, guideDate, { guideDate = it }, Modifier.padding(padding), backEnabled = detailPages.isEmpty(), onOpen = { selectedArtworkKey = null; openFromCatalog(it) }, onExpandedChange = { catalogExpanded = it }) }
-                    Tab.TV, Tab.MOVIE -> CatalogScreen(target, api, store, refresh, Modifier.padding(padding), onOpen = openFromCatalog, onAction = { action = it }, onFilters = { bounds -> filtersOrigin = bounds; filters = true }, onChanged = { refresh++ }, onExpandedChange = { catalogExpanded = it })
+            Box(Modifier.fillMaxSize()) {
+                AuroraBackground()
+                AnimatedContent(tab, label = "main", transitionSpec = {
+                    val forward = targetState.ordinal > initialState.ordinal
+                    (fadeIn(tween(280, delayMillis = 40)) + androidx.compose.animation.slideInHorizontally(tween(420, easing = Sw.Emphasized)) { if (forward) it / 6 else -it / 6 } + scaleIn(tween(420, easing = Sw.Emphasized), initialScale = .97f)) togetherWith
+                        (fadeOut(tween(160)) + androidx.compose.animation.slideOutHorizontally(tween(320, easing = Sw.Emphasized)) { if (forward) -it / 10 else it / 10 })
+                }) { target ->
+                    when (target) {
+                        Tab.HOME -> HomeScreen(
+                            api, store, refresh,
+                            onOpen = openFromCatalog,
+                            onAction = { action = it },
+                            onSearch = { bounds -> searchOrigin = bounds; search = true },
+                            onSettings = { bounds -> settingsOrigin = bounds; settings = true },
+                            onAdvisor = { fromLibrary -> advisorFromLibrary = fromLibrary; advisor = true },
+                            onOpenLibrary = { section -> librarySection = section; tab = Tab.LIBRARY },
+                            onDiscover = { tab = Tab.DISCOVER },
+                            onOpenGuide = { tab = Tab.GUIDE },
+                            onOpenPerson = { person, bounds -> followedPerson = PersonSelection(person, bounds) }
+                        )
+                        Tab.DISCOVER -> DiscoverScreen(
+                            discoverKind, { discoverKind = it }, api, store, refresh,
+                            chromeVisible = !catalogExpanded,
+                            onOpen = openFromCatalog,
+                            onAction = { action = it },
+                            onSearch = { bounds -> searchOrigin = bounds; search = true },
+                            onFilters = { bounds -> filtersOrigin = bounds; filters = true },
+                            onChanged = { refresh++ },
+                            onExpandedChange = { catalogExpanded = it }
+                        )
+                        Tab.GUIDE -> key(guideRequest) { TvGuideScreen(api, guideDate, { guideDate = it }, Modifier, backEnabled = detailPages.isEmpty(), onOpen = { selectedArtworkKey = null; openFromCatalog(it) }, onExpandedChange = { catalogExpanded = it }) }
+                        Tab.LIBRARY -> LibraryScreen(
+                            librarySection, { librarySection = it }, api, store, refresh,
+                            onOpen = openFromCatalog,
+                            onAction = { action = it },
+                            onOpenSaga = { selectedSaga = it; closingSaga = false; selectedArtworkKey = sagaArtworkKey(it) },
+                            onOpenPerson = { person, bounds -> followedPerson = PersonSelection(person, bounds) },
+                            onDiscover = { tab = Tab.DISCOVER }
+                        )
+                    }
                 }
-            }
-            if (!catalogExpanded) {
-                AppToolbar(Modifier.align(Alignment.TopCenter), onSearch = { bounds -> searchOrigin = bounds; search = true }, onSettings = { bounds -> settingsOrigin = bounds; settings = true }, onAdvisor = { advisorFromLibrary = false; advisor = true })
-                ExpressiveNavigation(tab, Modifier.align(Alignment.BottomCenter)) { tab = it; catalogExpanded = false }
-            }
+                // Keeps scrolled content from colliding with the status bar icons.
+                Box(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Sw.Background.copy(alpha = .94f), Sw.Background.copy(alpha = .6f), Color.Transparent))).statusBarsPadding().padding(bottom = 14.dp))
+                AnimatedVisibility(
+                    visible = !catalogExpanded,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    enter = fadeIn(tween(220)) + slideInVertically(tween(380, easing = Sw.Emphasized)) { it },
+                    exit = fadeOut(tween(160)) + androidx.compose.animation.slideOutVertically(tween(260)) { it }
+                ) {
+                    FloatingNavBar(Tab.entries.map { NavItem(it.label, it.icon) }, tab.ordinal) { tab = Tab.entries[it]; catalogExpanded = false }
                 }
             }
 
@@ -456,14 +519,9 @@ private fun StreamWiseApp(
                 SettingsScreen(store, onDismiss = close, onChanged = { refresh++ }, onExportBackup = onExportBackup, onImportBackup = onImportBackup, onReplayOnboarding = onReplayOnboarding)
             }
             if (filters) ExpandingPage(filtersOrigin, onClosed = { filters = false }) { close ->
-                FilterScreen(tab, api, store, onDismiss = close, onOpen = openFromCatalog, onAction = { action = it })
+                FilterScreen(discoverKind.type, api, store, onDismiss = close, onOpen = openFromCatalog, onAction = { action = it })
             }
             if (advisor) AdvisorSheet(api, store, libraryOnly = advisorFromLibrary, onDismiss = { advisor = false }, onOpen = { media, request -> selectedArtworkKey = null; advisorRequest = request; detailPages = listOf(DetailPage(media, null)); closingDetailId = null; selected = media; advisor = false })
-            expandedSection?.let { section ->
-                ExpandingPage(expandedSectionOrigin, onClosed = { expandedSection = null }) { close ->
-                    ExpandedLibraryScreen(section, store, refresh, onDismiss = close, onOpen = openFromCatalog, onAction = { action = it })
-                }
-            }
             selectedSaga?.let { saga ->
                 ExpandingPage(null, onClosed = { selectedSaga = null }) { close ->
                     SagaDetailScreen(
@@ -481,48 +539,30 @@ private fun StreamWiseApp(
             }
             detailPages.forEach { page ->
                 key(page.routeId) {
-                    val visibility = remember(page.routeId) { MutableTransitionState(false).apply { targetState = true } }
                     val closingThisPage = closingDetailId == page.routeId
-                    val closeProgress = remember(page.routeId) { Animatable(0f) }
-                    var pageBounds by remember(page.routeId) { mutableStateOf<Rect?>(null) }
-                    val closeFrom = remember(closingThisPage) { if (closingThisPage) pageBounds else null }
-                    val closeTo = remember(closingThisPage) { if (closingThisPage) page.artworkKey?.let(artworkBounds::get) else null }
+                    val progress = remember(page.routeId) { Animatable(0f) }
+                    LaunchedEffect(page.routeId) { progress.animateTo(1f, tween(580, easing = Sw.Emphasized)) }
                     LaunchedEffect(closingThisPage) {
                         if (closingThisPage) {
-                            closeProgress.snapTo(0f)
-                            closeProgress.animateTo(1f, tween(320, easing = FastOutSlowInEasing))
+                            progress.animateTo(0f, tween(440, easing = Sw.Emphasized))
                             val remaining = detailPages.filterNot { it.routeId == page.routeId }
                             detailPages = remaining
                             selectedArtworkKey = remaining.lastOrNull()?.artworkKey
                             closingDetailId = null
                         }
                     }
-                    AnimatedVisibility(
-                        visibleState = visibility,
-                        enter = fadeIn(tween(90))
+                    // Landscape sources (hero, continue watching) grow from their backdrop, posters from the poster.
+                    val previewUrl = remember(page.routeId, page.media.id) {
+                        val bounds = page.artworkKey?.let(artworkBounds::get)
+                        if (bounds != null && bounds.width > bounds.height) page.media.backdrop.ifBlank { page.media.poster }
+                        else page.media.poster.ifBlank { page.media.backdrop }
+                    }
+                    ContainerTransform(
+                        progress = { progress.value },
+                        source = { page.artworkKey?.let(artworkBounds::get) },
+                        preview = { modifier -> RemoteImage(previewUrl, modifier, ContentScale.Crop) }
                     ) {
-                        Box(
-                            Modifier.fillMaxSize()
-                                .onGloballyPositioned { if (!closingThisPage) pageBounds = it.boundsInRoot() }
-                                .graphicsLayer {
-                                    if (closingThisPage) {
-                                        val progress = closeProgress.value
-                                        val from = closeFrom
-                                        val to = closeTo
-                                        if (from != null && to != null && from.width > 0f && from.height > 0f && to.width > 0f && to.height > 0f) {
-                                            transformOrigin = TransformOrigin(0f, 0f)
-                                            scaleX = 1f + (to.width / from.width - 1f) * progress
-                                            scaleY = 1f + (to.height / from.height - 1f) * progress
-                                            translationX = (to.left - from.left) * progress
-                                            translationY = (to.top - from.top) * progress
-                                            shape = RoundedCornerShape((22f * progress).dp)
-                                            clip = true
-                                        }
-                                        alpha = 1f - progress * progress
-                                    }
-                                }
-                        ) {
-                        CompositionLocalProvider(LocalDetailVisibilityScope provides this@AnimatedVisibility) {
+                        run {
                             AnimatedContent(
                                 targetState = page.media,
                                 contentKey = { it.id },
@@ -533,7 +573,7 @@ private fun StreamWiseApp(
                                     media, api, store,
                                     refreshVersion = refresh,
                                     artworkKey = page.artworkKey,
-                                    sharedBoundsEnabled = !closingThisPage && page.routeId == detailPages.lastOrNull()?.routeId,
+                                    sharedBoundsEnabled = false,
                                     backEnabled = page.routeId == detailPages.lastOrNull()?.routeId && closingDetailId == null,
                                     onClose = {
                                         if (closingDetailId == null && page.routeId == detailPages.lastOrNull()?.routeId) {
@@ -570,7 +610,6 @@ private fun StreamWiseApp(
                                 )
                             }
                         }
-                        }
                     }
                 }
             }
@@ -587,120 +626,373 @@ private fun ExpandingPage(
     onClosed: () -> Unit,
     content: @Composable (close: () -> Unit) -> Unit
 ) {
-    var pageBounds by remember { mutableStateOf<Rect?>(null) }
     var closing by remember { mutableStateOf(false) }
     val progress = remember { Animatable(0f) }
     val close = { if (!closing) closing = true }
-    LaunchedEffect(pageBounds != null, closing) {
-        if (pageBounds != null) {
-            progress.animateTo(if (closing) 0f else 1f, tween(320, easing = FastOutSlowInEasing))
-            if (closing) onClosed()
-        }
+    LaunchedEffect(closing) {
+        if (closing) {
+            progress.animateTo(0f, tween(420, easing = Sw.Emphasized))
+            onClosed()
+        } else progress.animateTo(1f, tween(560, easing = Sw.Emphasized))
     }
-    Box(
-        Modifier.fillMaxSize()
-            .onGloballyPositioned { if (pageBounds == null) pageBounds = it.boundsInRoot() }
-            .graphicsLayer {
-                val fraction = progress.value
-                val from = sourceBounds
-                val to = pageBounds
-                if (from != null && to != null && from.width > 0f && from.height > 0f && to.width > 0f && to.height > 0f) {
-                    transformOrigin = TransformOrigin(0f, 0f)
-                    scaleX = from.width / to.width + (1f - from.width / to.width) * fraction
-                    scaleY = from.height / to.height + (1f - from.height / to.height) * fraction
-                    translationX = (from.left - to.left) * (1f - fraction)
-                    translationY = (from.top - to.top) * (1f - fraction)
-                    shape = RoundedCornerShape((24f * (1f - fraction)).dp)
-                    clip = fraction < 1f
-                }
-                alpha = fraction * (2f - fraction)
+    ContainerTransform(progress = { progress.value }, source = { sourceBounds }) { content(close) }
+}
+
+private fun greeting(): String = when (java.time.LocalTime.now(TvGuideRepository.ROME).hour) {
+    in 5..12 -> "Buongiorno"
+    in 13..17 -> "Buon pomeriggio"
+    else -> "Buonasera"
+}
+
+@Composable
+private fun HomeScreen(
+    api: TmdbApi,
+    store: LibraryStore,
+    refresh: Int,
+    onOpen: (Models.Media) -> Unit,
+    onAction: (Models.Media) -> Unit,
+    onSearch: (Rect?) -> Unit,
+    onSettings: (Rect?) -> Unit,
+    onAdvisor: (Boolean) -> Unit,
+    onOpenLibrary: (LibrarySection) -> Unit,
+    onDiscover: () -> Unit,
+    onOpenGuide: () -> Unit,
+    onOpenPerson: (Models.Person, Rect?) -> Unit
+) {
+    val progress = remember(refresh) { continueWatchingOrder(store.entriesByState("progress").toList()) }
+    val saved = remember(refresh) { store.entriesByState("saved").sortedByDescending { it.pinned }.map { it.media } }
+    val watchedCount = remember(refresh) { store.byState("watched").size }
+    val hidden = remember(refresh) { store.byState("hidden").map { it.id }.toSet() }
+    val context = LocalContext.current
+    val follows = remember(refresh) { ReleaseFollows.all(context) }
+    val followedPeople = remember(refresh) { PersonFollows.people(context).distinctBy { it.id } }
+    var trending by remember { mutableStateOf<List<Models.Media>?>(null) }
+    LaunchedEffect(api) {
+        trending = withContext(Dispatchers.IO) {
+            coroutineScope {
+                val movies = async { runCatching { api.trending("movie").toList() }.getOrDefault(emptyList()) }
+                val series = async { runCatching { api.trending("tv").toList() }.getOrDefault(emptyList()) }
+                val m = movies.await()
+                val s = series.await()
+                (0 until maxOf(m.size, s.size)).flatMap { listOfNotNull(m.getOrNull(it), s.getOrNull(it)) }
             }
-    ) {
-        content(close)
+        }
+    }
+    val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = statusTop + 14.dp, bottom = 132.dp), verticalArrangement = Arrangement.spacedBy(28.dp)) {
+        item {
+            Column(Modifier.padding(horizontal = 20.dp).reveal()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(greeting().uppercase(), color = Sw.Accent, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                        Text("Cosa guardiamo?", style = MaterialTheme.typography.displaySmall, color = Ink, modifier = Modifier.padding(top = 4.dp))
+                    }
+                    GlassIconButton(R.drawable.ic_settings, "Impostazioni", onClick = onSettings)
+                }
+                SearchPill(Modifier.padding(top = 18.dp), onSearch)
+            }
+        }
+        item { AdvisorCards(progress.isNotEmpty() || saved.isNotEmpty(), Modifier.reveal(90), onAdvisor) }
+        if (progress.isNotEmpty()) item {
+            Column(Modifier.reveal(160)) {
+                SectionHeader("Continua a guardare", eyebrow = "Riprendi da dove eri", onAction = { onOpenLibrary(LibrarySection.PROGRESS) })
+                LazyRow(Modifier.padding(top = 12.dp), contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    items(progress, key = { it.media.id }) { entry -> ContinueCard(entry, refresh, { onOpen(entry.media) }, { onAction(entry.media) }) }
+                }
+            }
+        }
+        if (progress.isEmpty() && saved.isEmpty() && watchedCount == 0) item { EmptyLibrary(onDiscover) }
+        if (follows.isNotEmpty()) item {
+            val today = java.time.LocalDate.now(TvGuideRepository.ROME)
+            val labels = follows.associate { it.media.id to ReleaseFollows.shortLabel(it, today) }
+            MediaRail("Uscite che segui", follows.map { it.media }, store, onOpen, onAction, contentVersion = refresh, footerFor = { labels[it.id] }, eyebrow = "Ti avviso io", onSeeAll = { onOpenLibrary(LibrarySection.FOLLOWING) })
+        }
+        item {
+            val list = trending
+            if (list == null) RailSkeleton("In tendenza")
+            else MediaRail("In tendenza", list.filter { it.id !in hidden }.take(10), store, onOpen, onAction, ranked = true, contentVersion = refresh, eyebrow = "Film e serie · Top 10 della settimana")
+        }
+        if (saved.isNotEmpty()) item { MediaRail("La mia lista", saved, store, onOpen, onAction, contentVersion = refresh, eyebrow = "${saved.size} da vedere", onSeeAll = { onOpenLibrary(LibrarySection.SAVED) }) }
+        item { GuideTeaser(onOpenGuide) }
+        if (followedPeople.isNotEmpty()) item { PeopleRail(followedPeople, title = "Persone che segui", topPadding = 0.dp, onPersonClick = onOpenPerson) }
     }
 }
 
 @Composable
-private fun AppToolbar(modifier: Modifier = Modifier, onSearch: (Rect?) -> Unit, onSettings: (Rect?) -> Unit, onAdvisor: () -> Unit) {
-    Surface(
-        modifier = modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp).padding(top = 8.dp),
-        color = Color(0xF5221E23),
-        shape = RoundedCornerShape(36.dp),
-        shadowElevation = 18.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF784055).copy(alpha = .75f))
-    ) {
-        Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                buildAnnotatedString {
-                    withStyle(SpanStyle(color = Color(0xFFF7F3F5))) { append("STREAM") }
-                    withStyle(SpanStyle(color = Color(0xFF9D979E))) { append("WISE") }
-                },
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 1.8.sp,
-                fontSize = 16.sp,
-                maxLines = 1,
-                modifier = Modifier.weight(1f)
-            )
-            ToolIcon(R.drawable.ic_sparkles, "Sorprendimi", { onAdvisor() }, highlighted = true)
-            ToolIcon(R.drawable.ic_search, "Cerca", onSearch)
-            ToolIcon(R.drawable.ic_settings, "Impostazioni", onSettings)
-        }
-    }
-}
-
-@Composable private fun ToolIcon(icon: Int, description: String, action: (Rect?) -> Unit, highlighted: Boolean = false) {
-    val buttonShape = CircleShape
+private fun SearchPill(modifier: Modifier, onSearch: (Rect?) -> Unit) {
     var bounds by remember { mutableStateOf<Rect?>(null) }
-    Surface(
-        onClick = { action(bounds) },
-        modifier = Modifier.padding(start = 8.dp).size(44.dp).onGloballyPositioned { bounds = it.boundsInRoot() }.then(if (highlighted) Modifier.crimsonGlow(buttonShape) else Modifier),
-        color = if (highlighted) Color.Transparent else Color(0xFF2C292F),
-        shape = buttonShape,
-        border = if (highlighted) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF474149)),
-        shadowElevation = if (highlighted) 0.dp else 3.dp
+    val interaction = remember { MutableInteractionSource() }
+    Row(
+        modifier.fillMaxWidth().height(54.dp)
+            .onGloballyPositioned { bounds = it.boundsInRoot() }
+            .pressScale(interaction, .97f)
+            .glass(RoundedCornerShape(27.dp))
+            .clickable(interaction, indication = null) { onSearch(bounds) }
+            .padding(horizontal = 18.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Icon(painterResource(icon), description, tint = if (highlighted) Color(0xFFFFE5ED) else Color(0xFFE1DDE2), modifier = Modifier.size(if (highlighted) 25.dp else 23.dp))
+        Icon(painterResource(R.drawable.ic_search), null, tint = Sw.Accent, modifier = Modifier.size(22.dp))
+        Text("Film, serie, attori, registi…", color = Muted, fontSize = 15.sp, modifier = Modifier.padding(start = 12.dp).weight(1f))
+    }
+}
+
+@Composable
+private fun AdvisorCards(hasLibrary: Boolean, modifier: Modifier, onAdvisor: (Boolean) -> Unit) {
+    Row(modifier.padding(horizontal = 20.dp).fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        AdvisorCard("Sorprendimi", "Un titolo a caso dal catalogo, su misura", R.drawable.ic_sparkles, primary = true, Modifier.weight(1f)) { onAdvisor(false) }
+        if (hasLibrary) AdvisorCard("Dalla mia lista", "Scelgo io tra i titoli che hai salvato", R.drawable.ic_library, primary = false, Modifier.weight(1f)) { onAdvisor(true) }
+    }
+}
+
+@Composable
+private fun AdvisorCard(title: String, subtitle: String, icon: Int, primary: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val shape = RoundedCornerShape(26.dp)
+    val transition = rememberInfiniteTransition(label = "advisor-icon")
+    val wiggle by transition.animateFloat(-10f, 10f, infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "advisor-wiggle")
+    Column(
+        modifier.fillMaxHeight()
+            .pressScale(interaction, .96f)
+            .then(if (primary) Modifier.brandGlow(shape, 14.dp).clip(shape).lightSweep() else Modifier.glass(shape))
+            .clickable(interaction, indication = null, onClick = onClick)
+            .padding(18.dp)
+    ) {
+        Box(Modifier.size(42.dp).clip(CircleShape).background(Color.White.copy(alpha = if (primary) .22f else .08f)), contentAlignment = Alignment.Center) {
+            Icon(painterResource(icon), null, tint = if (primary) Color.White else Sw.Accent,
+                modifier = Modifier.size(22.dp).graphicsLayer { if (primary) rotationZ = wiggle })
+        }
+        Text(title, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, modifier = Modifier.padding(top = 14.dp))
+        Text(subtitle, color = Color.White.copy(alpha = if (primary) .86f else .6f), fontSize = 13.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 3.dp))
+    }
+}
+
+@Composable
+private fun ContinueCard(entry: Models.LibraryEntry, contentVersion: Int, open: () -> Unit, actions: () -> Unit) {
+    val media = entry.media
+    val sourceKey = rememberArtworkSourceKey(media)
+    val registerSource = LocalRegisterArtworkSource.current
+    val shape = RoundedCornerShape(22.dp)
+    val label = remember(entry.nextSeason, entry.nextEpisode, entry.state, contentVersion) {
+        if (media.isSeries) "Prossimo · S${entry.nextSeason} E${entry.nextEpisode}" else "Film · da finire"
+    }
+    Box(Modifier.width(284.dp).aspectRatio(16f / 9.5f).noRippleCombinedClickable(onClick = { registerSource(sourceKey); open() }, onLongClick = actions)) {
+        SharedArtworkSource(media, sourceKey, Modifier.fillMaxSize(), shape, media.backdrop.ifBlank { media.poster })
+        Box(Modifier.matchParentSize().clip(shape).background(Brush.verticalGradient(0f to Color.Transparent, .45f to Color.Black.copy(alpha = .15f), 1f to Color.Black.copy(alpha = .9f))))
+        Box(Modifier.matchParentSize().border(1.dp, Color.White.copy(alpha = .08f), shape))
+        if (entry.pinned) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(30.dp).clip(CircleShape).background(Sw.Brand), contentAlignment = Alignment.Center) {
+            Icon(painterResource(R.drawable.ic_push_pin), "Titolo fissato in alto", tint = Color.White, modifier = Modifier.size(16.dp))
+        }
+        Row(Modifier.align(Alignment.BottomStart).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(40.dp).brandGlow(CircleShape, 8.dp), contentAlignment = Alignment.Center) {
+                Icon(painterResource(R.drawable.ic_play), "Riprendi", tint = Color.White, modifier = Modifier.size(20.dp))
+            }
+            Column(Modifier.padding(start = 11.dp)) {
+                Text(media.title, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(label, color = Color.White.copy(alpha = .78f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            }
         }
     }
 }
 
 @Composable
-private fun ExpressiveNavigation(active: Tab, modifier: Modifier = Modifier, onSelect: (Tab) -> Unit) {
-    Surface(
-        modifier = modifier.navigationBarsPadding().padding(horizontal = 18.dp, vertical = 10.dp).fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = .96f),
-        shape = RoundedCornerShape(32.dp),
-        shadowElevation = 24.dp,
-        tonalElevation = 5.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .8f))
+private fun RailSkeleton(title: String?) {
+    Column {
+        if (title != null) SectionHeader(title)
+        else LoadingSkeleton(Modifier.padding(horizontal = 20.dp).width(160.dp).height(20.dp).clip(RoundedCornerShape(8.dp)))
+        Row(Modifier.padding(top = 12.dp).padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            repeat(3) {
+                Column(Modifier.width(136.dp)) {
+                    LoadingSkeleton(Modifier.fillMaxWidth().aspectRatio(.68f).clip(RoundedCornerShape(18.dp)))
+                    LoadingSkeleton(Modifier.padding(top = 10.dp).fillMaxWidth(.8f).height(12.dp).clip(RoundedCornerShape(6.dp)))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GuideTeaser(onOpen: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val shape = RoundedCornerShape(26.dp)
+    Row(
+        Modifier.padding(horizontal = 20.dp).fillMaxWidth().reveal()
+            .pressScale(interaction, .97f)
+            .clip(shape)
+            .background(Brush.linearGradient(listOf(Color(0xFF1B2542), Color(0xFF141826))))
+            .border(1.dp, Sw.Blue.copy(alpha = .35f), shape)
+            .clickable(interaction, indication = null, onClick = onOpen)
+            .padding(18.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        BoxWithConstraints(Modifier.fillMaxWidth().padding(6.dp)) {
-            val itemWidth = maxWidth / Tab.entries.size
-            val indicatorX by animateDpAsState(
-                targetValue = itemWidth * active.ordinal,
-                animationSpec = spring(dampingRatio = .72f, stiffness = Spring.StiffnessMediumLow),
-                label = "nav-indicator"
-            )
-            Surface(
-                color = Color.Transparent,
-                shape = RoundedCornerShape(26.dp),
-                modifier = Modifier.offset(x = indicatorX).width(itemWidth).height(62.dp).crimsonGlow(RoundedCornerShape(26.dp), 8.dp)
-            ) {}
-            Row(Modifier.fillMaxWidth()) {
-                Tab.entries.forEach { tab ->
-                    val selected = tab == active
-                    val scale by animateFloatAsState(if (selected) 1f else .92f, spring(Spring.DampingRatioMediumBouncy), label = "nav-icon")
-                    Surface(
-                        onClick = { onSelect(tab) },
-                        color = Color.Transparent,
-                        shape = RoundedCornerShape(26.dp),
-                        modifier = Modifier.width(itemWidth).height(62.dp)
+        Box(Modifier.size(52.dp).clip(RoundedCornerShape(17.dp)).background(Sw.Blue.copy(alpha = .18f)), contentAlignment = Alignment.Center) {
+            Icon(painterResource(R.drawable.ic_tv_guide), null, tint = Sw.Blue, modifier = Modifier.size(27.dp))
+        }
+        Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                PulsingDot(LikeGreen, size = 4.dp)
+                Text("STASERA IN TV", color = LikeGreen, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp, modifier = Modifier.padding(start = 4.dp))
+            }
+            Text("Film e serie in chiaro", color = Ink, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+            Text("Palinsesti, canali e promemoria", color = Muted, fontSize = 13.sp)
+        }
+        Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Muted)
+    }
+}
+
+@Composable
+private fun EmptyState(icon: Int, title: String, body: String, modifier: Modifier = Modifier, action: String? = null, onAction: (() -> Unit)? = null) {
+    val transition = rememberInfiniteTransition(label = "empty-float")
+    val float by transition.animateFloat(-5f, 5f, infiniteRepeatable(tween(2200, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "empty-float-y")
+    Column(modifier.fillMaxWidth().padding(horizontal = 36.dp, vertical = 36.dp).reveal(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.graphicsLayer { translationY = float.dp.toPx() }.size(84.dp).brandGlow(RoundedCornerShape(28.dp), 18.dp), contentAlignment = Alignment.Center) {
+            Icon(painterResource(icon), null, tint = Color.White, modifier = Modifier.size(38.dp))
+        }
+        Text(title, style = MaterialTheme.typography.headlineSmall, color = Ink, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(top = 24.dp))
+        Text(body, color = Muted, fontSize = 15.sp, lineHeight = 21.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(top = 8.dp))
+        if (action != null && onAction != null) Button(
+            onAction,
+            modifier = Modifier.padding(top = 22.dp).height(50.dp).crimsonGlow(CircleShape, 8.dp),
+            shape = CircleShape,
+            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
+            contentPadding = PaddingValues(horizontal = 26.dp)
+        ) { Text(action, fontWeight = FontWeight.Bold) }
+    }
+}
+
+@Composable
+private fun DiscoverScreen(
+    kind: Kind,
+    onKind: (Kind) -> Unit,
+    api: TmdbApi,
+    store: LibraryStore,
+    refresh: Int,
+    chromeVisible: Boolean,
+    onOpen: (Models.Media) -> Unit,
+    onAction: (Models.Media) -> Unit,
+    onSearch: (Rect?) -> Unit,
+    onFilters: (Rect?) -> Unit,
+    onChanged: () -> Unit,
+    onExpandedChange: (Boolean) -> Unit
+) {
+    val listStates = remember { Kind.entries.associateWith { androidx.compose.foundation.lazy.LazyListState() } }
+    Box(Modifier.fillMaxSize()) {
+        AnimatedContent(kind, label = "discover-kind", transitionSpec = {
+            val forward = targetState.ordinal > initialState.ordinal
+            (fadeIn(tween(260)) + androidx.compose.animation.slideInHorizontally(tween(420, easing = Sw.Emphasized)) { if (forward) it / 5 else -it / 5 }) togetherWith
+                (fadeOut(tween(140)) + androidx.compose.animation.slideOutHorizontally(tween(320, easing = Sw.Emphasized)) { if (forward) -it / 8 else it / 8 })
+        }) { target ->
+            CatalogScreen(target, api, store, refresh, listStates.getValue(target), onOpen, onAction, onFilters, onChanged, onExpandedChange)
+        }
+        val state = listStates.getValue(kind)
+        val scrolled by remember(kind) { derivedStateOf { state.firstVisibleItemIndex > 0 || state.firstVisibleItemScrollOffset > 8 } }
+        val solid by animateFloatAsState(if (scrolled) 1f else 0f, tween(280), label = "discover-header")
+        AnimatedVisibility(chromeVisible, enter = fadeIn(tween(200)), exit = fadeOut(tween(120))) {
+            Column(
+                Modifier.fillMaxWidth()
+                    .drawBehind {
+                        drawRect(Sw.Background.copy(alpha = .95f * solid))
+                    }
+                    .statusBarsPadding()
+                    .padding(bottom = 12.dp)
+            ) {
+                Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Scopri", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Black, letterSpacing = (-.9).sp, modifier = Modifier.weight(1f))
+                    GlassIconButton(R.drawable.ic_search, "Cerca", onClick = onSearch)
+                    Spacer(Modifier.width(10.dp))
+                    GlassIconButton(R.drawable.ic_tune, "Piattaforma e genere", onClick = onFilters)
+                }
+                SegmentedPills(Kind.entries.map { it.label }, kind.ordinal, Modifier.padding(horizontal = 20.dp).padding(top = 12.dp).fillMaxWidth()) { onKind(Kind.entries[it]) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryScreen(
+    section: LibrarySection,
+    onSection: (LibrarySection) -> Unit,
+    api: TmdbApi,
+    store: LibraryStore,
+    refresh: Int,
+    onOpen: (Models.Media) -> Unit,
+    onAction: (Models.Media) -> Unit,
+    onOpenSaga: (SagaCollection) -> Unit,
+    onOpenPerson: (Models.Person, Rect?) -> Unit,
+    onDiscover: () -> Unit
+) {
+    val context = LocalContext.current
+    val counts = remember(refresh) {
+        mapOf(
+            LibrarySection.PROGRESS to store.byState("progress").size,
+            LibrarySection.SAVED to store.byState("saved").size,
+            LibrarySection.WATCHED to store.byState("watched").size,
+            LibrarySection.HIDDEN to store.byState("hidden").size
+        )
+    }
+    val follows = remember(refresh) { ReleaseFollows.all(context) }
+    val people = remember(refresh) { PersonFollows.people(context).distinctBy { it.id } }
+    val saved = remember(refresh) { store.entriesByState("saved").map { it.media } }
+    var sagas by remember { mutableStateOf<List<SagaCollection>>(emptyList()) }
+    LaunchedEffect(refresh) {
+        val seeds = saved.filter { it.collectionId > 0 }.distinctBy { it.collectionId }
+        sagas = withContext(Dispatchers.IO) {
+            seeds.mapNotNull { seed -> runCatching { SagaCollection(seed.collectionId, seed.collectionName, (api.saga(seed) + saved.filter { it.collectionId == seed.collectionId }).distinctBy { it.id }.sortedBy { it.releaseDate }) }.getOrNull()?.takeIf { it.movies.isNotEmpty() } }
+        }
+    }
+    val sections = LibrarySection.entries.filter {
+        when (it) {
+            LibrarySection.SAGAS -> sagas.isNotEmpty()
+            LibrarySection.HIDDEN -> (counts[it] ?: 0) > 0
+            else -> true
+        }
+    }
+    val current = if (section in sections) section else LibrarySection.PROGRESS
+    val total = (counts[LibrarySection.PROGRESS] ?: 0) + (counts[LibrarySection.SAVED] ?: 0) + (counts[LibrarySection.WATCHED] ?: 0)
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        Column(Modifier.padding(horizontal = 20.dp).padding(top = 14.dp).reveal()) {
+            Text("LA TUA COLLEZIONE", color = Sw.Accent, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+            Text("Libreria", style = MaterialTheme.typography.displaySmall, color = Ink, modifier = Modifier.padding(top = 4.dp))
+            AnimatedCount(total) { value ->
+                Text("$value titoli · ${follows.size + people.size} seguiti", color = Muted, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
+            }
+        }
+        ChipTabs(
+            sections.map { it.label to when (it) {
+                LibrarySection.FOLLOWING -> follows.size + people.size
+                LibrarySection.SAGAS -> sagas.size
+                LibrarySection.SERVICES -> null
+                else -> counts[it]
+            } },
+            sections.indexOf(current),
+            Modifier.padding(top = 16.dp)
+        ) { onSection(sections[it]) }
+        AnimatedContent(
+            current,
+            modifier = Modifier.weight(1f).fillMaxWidth().padding(top = 12.dp),
+            transitionSpec = { (fadeIn(tween(240)) + slideInVertically(tween(360, easing = Sw.Emphasized)) { it / 14 }) togetherWith fadeOut(tween(120)) },
+            label = "library-section"
+        ) { target ->
+            when (target) {
+                LibrarySection.PROGRESS, LibrarySection.SAVED, LibrarySection.WATCHED ->
+                    LibrarySectionContent(target.home!!, store, refresh, onOpen, onAction, onDiscover)
+                LibrarySection.FOLLOWING -> FollowingContent(follows, people, refresh, onOpen, onAction, onOpenPerson)
+                LibrarySection.SERVICES -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 4.dp, bottom = 132.dp)) {
+                    SubscriptionsPanel(store, refresh, onOpen)
+                }
+                LibrarySection.SAGAS -> LazyVerticalGrid(
+                    GridCells.Fixed(2), Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 132.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) { gridItems(sagas, key = { it.id }) { SagaCollectionCard(it, onOpenSaga, Modifier.fillMaxWidth()) } }
+                LibrarySection.HIDDEN -> {
+                    val hidden = remember(refresh) { store.byState("hidden").toList() }
+                    LazyVerticalGrid(
+                        GridCells.Adaptive(104.dp), Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 132.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center, modifier = Modifier.scale(scale)) {
-                            Icon(painterResource(tab.icon), null, tint = if (selected) Color.White else CrimsonSoft, modifier = Modifier.size(25.dp))
-                            Text(tab.label, color = if (selected) Color.White else CrimsonSoft, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 3.dp))
-                        }
+                        item(span = { GridItemSpan(maxLineSpan) }) { Text("Tieni premuto un titolo per ripristinarlo nel catalogo.", color = Muted, fontSize = 13.sp) }
+                        gridItems(hidden, key = { it.id }) { media -> SearchPosterCard(media, store.get(media), contentVersion = refresh, onLongPress = { onAction(media) }) { onOpen(media) } }
                     }
                 }
             }
@@ -709,57 +1001,43 @@ private fun ExpressiveNavigation(active: Tab, modifier: Modifier = Modifier, onS
 }
 
 @Composable
-private fun HomeScreen(api: TmdbApi, store: LibraryStore, refresh: Int, modifier: Modifier, onOpen: (Models.Media) -> Unit, onAction: (Models.Media) -> Unit, onExplore: (Tab) -> Unit, onAdvisor: () -> Unit, onChanged: () -> Unit, onOpenSaga: (SagaCollection) -> Unit, onExpand: (HomeSection, Rect?) -> Unit, onOpenPerson: (Models.Person, Rect?) -> Unit) {
-    val subscriptionData = LocalSubscriptionData.current
-    val activeSubscriptions = LocalActiveSubscriptions.current.active
-    val (progressFilter, changeProgressFilter) = rememberSubscriptionFilter(store, "progress", refresh)
-    val (savedFilter, changeSavedFilter) = rememberSubscriptionFilter(store, "saved", refresh)
-    val progress = remember(refresh) { store.entriesByState("progress").toList() }
-    val saved = remember(refresh) { store.entriesByState("saved").sortedByDescending { it.pinned }.map { it.media } }
-    val watched = remember(refresh) { store.byState("watched").toList() }
-    val hidden = remember(refresh) { store.byState("hidden").toList() }
-    val context = LocalContext.current
-    val follows = remember(refresh) { ReleaseFollows.all(context) }
-    val followedPeople = remember(refresh) { PersonFollows.people(context).distinctBy { it.id } }
-    var sagaCollections by remember { mutableStateOf<List<SagaCollection>>(emptyList()) }
-    LaunchedEffect(refresh) {
-        val seeds = saved.filter { it.collectionId > 0 }.distinctBy { it.collectionId }
-        sagaCollections = withContext(Dispatchers.IO) {
-            seeds.mapNotNull { seed -> runCatching { SagaCollection(seed.collectionId, seed.collectionName, (api.saga(seed) + saved.filter { it.collectionId == seed.collectionId }).distinctBy { it.id }.sortedBy { it.releaseDate }) }.getOrNull()?.takeIf { it.movies.isNotEmpty() } }
-        }
+private fun FollowingContent(
+    follows: List<ReleaseFollows.Follow>,
+    people: List<Models.Person>,
+    refresh: Int,
+    onOpen: (Models.Media) -> Unit,
+    onAction: (Models.Media) -> Unit,
+    onOpenPerson: (Models.Person, Rect?) -> Unit
+) {
+    if (follows.isEmpty() && people.isEmpty()) {
+        EmptyState(R.drawable.ic_notifications_none, "Non segui ancora nulla", "Tocca “Segui” nella scheda di un film, di una serie, di un attore o di un regista: ti avviserò quando esce qualcosa di nuovo.")
+        return
     }
-    LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(top = 148.dp, bottom = 128.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
-        item {
-            Column(Modifier.padding(horizontal = 20.dp)) {
-                Text("LA TUA SERATA", color = CrimsonSoft, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-                Text("Cosa guardiamo?", style = MaterialTheme.typography.displaySmall, color = Ink, modifier = Modifier.padding(top = 5.dp))
-                Text("La tua lista, i tuoi progressi, una scelta semplice.", color = Muted, fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
+    val today = remember(refresh) { java.time.LocalDate.now(TvGuideRepository.ROME) }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 4.dp, bottom = 132.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (people.isNotEmpty()) item { PeopleRail(people, title = "Persone", topPadding = 0.dp, onPersonClick = onOpenPerson) }
+        if (follows.isNotEmpty()) item { SectionHeader("Titoli", eyebrow = "Uscite e nuovi episodi", modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)) }
+        items(follows, key = { it.media.id }) { follow ->
+            val media = follow.media
+            Row(
+                Modifier.padding(horizontal = 20.dp).fillMaxWidth().animateItem()
+                    .noRippleCombinedClickable(onClick = { onOpen(media) }, onLongClick = { onAction(media) })
+                    .glass(RoundedCornerShape(22.dp))
+                    .padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RemoteImage(media.poster.ifBlank { media.backdrop }, Modifier.size(62.dp, 90.dp).clip(RoundedCornerShape(14.dp)), ContentScale.Crop)
+                Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+                    Text(media.title, color = Ink, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(if (media.isSeries) "Serie TV" else "Film", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+                    Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(painterResource(R.drawable.ic_notifications), null, tint = FollowGold, modifier = Modifier.size(15.dp))
+                        Text(ReleaseFollows.shortLabel(follow, today) ?: "", color = FollowGold, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 5.dp))
+                    }
+                }
+                Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Muted)
             }
         }
-        item { SubscriptionsPanel(store, refresh, onOpen) }
-        if (progress.isNotEmpty() || saved.isNotEmpty()) item {
-            Button(onAdvisor, modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth().height(56.dp).crimsonGlow(RoundedCornerShape(20.dp)), shape = RoundedCornerShape(20.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White)) {
-                Icon(painterResource(R.drawable.ic_sparkles), null, modifier = Modifier.size(21.dp)); Spacer(Modifier.width(10.dp)); Text("Consigliami dalla mia lista")
-            }
-        }
-        if (progress.isEmpty() && saved.isEmpty() && watched.isEmpty()) item { EmptyLibrary { onExplore(Tab.MOVIE) } }
-        if (progress.isNotEmpty()) item { MediaRail("Continua a guardare", continueWatchingOrder(progress).map { it.media }.filter { progressFilter.includes(it, subscriptionData, activeSubscriptions) }, store, onOpen, onAction, progress = true, contentVersion = refresh, onSeeAll = { onExpand(HomeSection.PROGRESS, it) }, headerContent = {
-            SubscriptionFilterBar(progressFilter, changeProgressFilter, Modifier.padding(horizontal = 20.dp))
-            if (progress.none { progressFilter.includes(it.media, subscriptionData, activeSubscriptions) }) Text("Nessun titolo con questi filtri", color = Muted, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
-        }) }
-        if (follows.isNotEmpty()) item {
-            val today = java.time.LocalDate.now(TvGuideRepository.ROME)
-            val labels = follows.associate { it.media.id to ReleaseFollows.shortLabel(it, today) }
-            MediaRail("Uscite che segui", follows.map { it.media }, store, onOpen, onAction, contentVersion = refresh, footerFor = { labels[it.id] })
-        }
-        if (followedPeople.isNotEmpty()) item { PeopleRail(followedPeople, title = "Persone che segui", topPadding = 0.dp, onPersonClick = onOpenPerson) }
-        if (saved.isNotEmpty()) item { MediaRail("La mia lista", saved.filter { savedFilter.includes(it, subscriptionData, activeSubscriptions) }, store, onOpen, onAction, contentVersion = refresh, onSeeAll = { onExpand(HomeSection.SAVED, it) }, headerContent = {
-            SubscriptionFilterBar(savedFilter, changeSavedFilter, Modifier.padding(horizontal = 20.dp))
-            if (saved.none { savedFilter.includes(it, subscriptionData, activeSubscriptions) }) Text("Nessun titolo con questi filtri", color = Muted, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
-        }) }
-        if (sagaCollections.isNotEmpty()) item { SagaCollectionsRail(sagaCollections, onOpenSaga) }
-        if (watched.isNotEmpty()) item { MediaRail("Già visti", watched, store, onOpen, onAction, contentVersion = refresh, onSeeAll = { onExpand(HomeSection.WATCHED, it) }) }
-        if (hidden.isNotEmpty()) item { MediaRail("Titoli nascosti", hidden, store, onOpen, onAction, contentVersion = refresh) }
     }
 }
 
@@ -774,11 +1052,11 @@ private fun SagaCollectionsRail(collections: List<SagaCollection>, onOpen: (Saga
 }
 
 @Composable
-private fun SagaCollectionCard(collection: SagaCollection, onOpen: (SagaCollection) -> Unit) {
+private fun SagaCollectionCard(collection: SagaCollection, onOpen: (SagaCollection) -> Unit, modifier: Modifier = Modifier.width(148.dp)) {
     val cover = collection.movies.firstOrNull()
     val sourceKey = remember(collection.id) { sagaArtworkKey(collection) }
     val registerSource = LocalRegisterArtworkSource.current
-    NoRipple { Surface(onClick = { registerSource(sourceKey); onOpen(collection) }, modifier = Modifier.width(148.dp), shape = RoundedCornerShape(22.dp), color = Raised) {
+    NoRipple { Surface(onClick = { registerSource(sourceKey); onOpen(collection) }, modifier = modifier, shape = RoundedCornerShape(22.dp), color = Raised) {
         Box(Modifier.fillMaxWidth().aspectRatio(.68f)) {
             if (cover != null) SharedArtworkSource(cover, sourceKey, Modifier.fillMaxSize(), RoundedCornerShape(22.dp), cover.poster.ifBlank { cover.backdrop })
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .82f)))))
@@ -817,7 +1095,7 @@ private fun SagaDetailScreen(
                     Box(Modifier.fillMaxWidth().height(520.dp)) {
                         if (hero != null) RemoteImage(hero.poster.ifBlank { hero.backdrop }, Modifier.fillMaxSize(), ContentScale.Crop)
                         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .2f), Color.Transparent, Night.copy(alpha = .98f)))))
-                        FilledTonalIconButton(close, Modifier.statusBarsPadding().padding(16.dp).align(Alignment.TopStart), colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color(0xCC1C1D23))) {
+                        FilledTonalIconButton(close, Modifier.statusBarsPadding().padding(16.dp).align(Alignment.TopStart), colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color(0xCC14161E))) {
                             Icon(painterResource(R.drawable.ic_back), "Indietro", tint = Color.White)
                         }
                         Column(Modifier.align(Alignment.BottomStart).padding(20.dp)) {
@@ -856,13 +1134,11 @@ private fun Modifier.sharedSagaBounds(key: String): Modifier {
 }
 
 @Composable private fun EmptyLibrary(openMovies: () -> Unit) {
-    Surface(Modifier.padding(horizontal = 20.dp).fillMaxWidth(), color = Panel, shape = RoundedCornerShape(32.dp), border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-        Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.Start) {
-            Surface(color = Color.Transparent, shape = RoundedCornerShape(18.dp), modifier = Modifier.size(54.dp).crimsonGlow(RoundedCornerShape(18.dp), 7.dp)) { Icon(painterResource(R.drawable.ic_add), null, tint = Color.White, modifier = Modifier.padding(14.dp)) }
-            Text("Costruisci la tua lista", style = MaterialTheme.typography.headlineMedium, color = Ink, modifier = Modifier.padding(top = 20.dp))
-            Text("Salva film e serie: StreamWise terrà il filo per te.", color = Muted, fontSize = 15.sp, modifier = Modifier.padding(top = 7.dp, bottom = 20.dp))
-            Button(openMovies, shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = Ink, contentColor = Night)) { Icon(painterResource(R.drawable.ic_movie), null); Spacer(Modifier.width(8.dp)); Text("Esplora i film") }
-        }
+    Column(Modifier.padding(horizontal = 20.dp).fillMaxWidth().reveal(120).glass(RoundedCornerShape(30.dp)).padding(24.dp)) {
+        Box(Modifier.size(54.dp).brandGlow(RoundedCornerShape(18.dp), 10.dp), contentAlignment = Alignment.Center) { Icon(painterResource(R.drawable.ic_add), null, tint = Color.White, modifier = Modifier.size(28.dp)) }
+        Text("Costruisci la tua lista", style = MaterialTheme.typography.headlineMedium, color = Ink, modifier = Modifier.padding(top = 20.dp))
+        Text("Salva film e serie: StreamWise terrà il filo per te, episodio dopo episodio.", color = Muted, fontSize = 15.sp, lineHeight = 21.sp, modifier = Modifier.padding(top = 7.dp, bottom = 20.dp))
+        Button(openMovies, shape = CircleShape, modifier = Modifier.height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Ink, contentColor = Night)) { Icon(painterResource(R.drawable.ic_compass), null); Spacer(Modifier.width(8.dp)); Text("Esplora il catalogo", fontWeight = FontWeight.Bold) }
     }
 }
 
@@ -905,42 +1181,42 @@ private suspend fun tastePage(api: TmdbApi, type: String, seeds: List<Models.Med
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CatalogScreen(tab: Tab, api: TmdbApi, store: LibraryStore, refresh: Int, modifier: Modifier, onOpen: (Models.Media) -> Unit, onAction: (Models.Media) -> Unit, onFilters: (Rect?) -> Unit, onChanged: () -> Unit, onExpandedChange: (Boolean) -> Unit) {
-    val type = if (tab == Tab.TV) "tv" else "movie"
-    var data by remember(tab) { mutableStateOf<CatalogData?>(null) }
-    var error by remember(tab) { mutableStateOf<String?>(null) }
-    val railPages = remember(tab) { mutableStateMapOf<String, Int>() }
-    var loadingRail by remember(tab) { mutableStateOf<String?>(null) }
-    var expandedRailName by remember(tab) { mutableStateOf<String?>(null) }
-    var expandedRailOrigin by remember(tab) { mutableStateOf<Rect?>(null) }
-    var reloadVersion by remember(tab) { mutableIntStateOf(0) }
+private fun CatalogScreen(kind: Kind, api: TmdbApi, store: LibraryStore, refresh: Int, listState: androidx.compose.foundation.lazy.LazyListState, onOpen: (Models.Media) -> Unit, onAction: (Models.Media) -> Unit, onFilters: (Rect?) -> Unit, onChanged: () -> Unit, onExpandedChange: (Boolean) -> Unit) {
+    val type = kind.type
+    var data by remember(kind) { mutableStateOf<CatalogData?>(null) }
+    var error by remember(kind) { mutableStateOf<String?>(null) }
+    val railPages = remember(kind) { mutableStateMapOf<String, Int>() }
+    var loadingRail by remember(kind) { mutableStateOf<String?>(null) }
+    var expandedRailName by remember(kind) { mutableStateOf<String?>(null) }
+    var expandedRailOrigin by remember(kind) { mutableStateOf<Rect?>(null) }
+    var reloadVersion by remember(kind) { mutableIntStateOf(0) }
     val newReleases = rememberNewReleases(type, api, reloadVersion)
-    DisposableEffect(tab) { onDispose { onExpandedChange(false) } }
-    var refreshing by remember(tab) { mutableStateOf(false) }
-    var masterpiecesPage by remember(tab) { mutableIntStateOf(2) }
-    var masterpiecesRefreshing by remember(tab) { mutableStateOf(false) }
-    var masterpiecesLoadingMore by remember(tab) { mutableStateOf(false) }
-    var trueStoriesPage by remember(tab) { mutableIntStateOf(1) }
-    var trueStoriesHasMore by remember(tab) { mutableStateOf(true) }
-    var trueStoriesRefreshing by remember(tab) { mutableStateOf(false) }
-    var trueStoriesLoadingMore by remember(tab) { mutableStateOf(false) }
-    var apocalypticPage by remember(tab) { mutableIntStateOf(1) }
-    var apocalypticHasMore by remember(tab) { mutableStateOf(true) }
-    var apocalypticRefreshing by remember(tab) { mutableStateOf(false) }
-    var apocalypticLoadingMore by remember(tab) { mutableStateOf(false) }
-    var trueCrimePage by remember(tab) { mutableIntStateOf(1) }
-    var trueCrimeHasMore by remember(tab) { mutableStateOf(true) }
-    var trueCrimeRefreshing by remember(tab) { mutableStateOf(false) }
-    var trueCrimeLoadingMore by remember(tab) { mutableStateOf(false) }
-    var filtersButtonBounds by remember(tab) { mutableStateOf<Rect?>(null) }
-    val likedSeeds = remember(tab, refresh) { store.all().filter { it.liked == true && it.state != "hidden" }.map { it.media } }
-    var tasteSeeds by remember(tab) { mutableStateOf<List<Models.Media>>(emptyList()) }
-    var tasteMedia by remember(tab) { mutableStateOf<List<Models.Media>>(emptyList()) }
-    var tastePageNumber by remember(tab) { mutableIntStateOf(1) }
-    var tasteRefreshVersion by remember(tab) { mutableIntStateOf(0) }
-    var tasteRefreshing by remember(tab) { mutableStateOf(false) }
-    var tasteLoadingMore by remember(tab) { mutableStateOf(false) }
-    var tasteHasMore by remember(tab) { mutableStateOf(true) }
+    DisposableEffect(kind) { onDispose { onExpandedChange(false) } }
+    var refreshing by remember(kind) { mutableStateOf(false) }
+    var masterpiecesPage by remember(kind) { mutableIntStateOf(2) }
+    var masterpiecesRefreshing by remember(kind) { mutableStateOf(false) }
+    var masterpiecesLoadingMore by remember(kind) { mutableStateOf(false) }
+    var trueStoriesPage by remember(kind) { mutableIntStateOf(1) }
+    var trueStoriesHasMore by remember(kind) { mutableStateOf(true) }
+    var trueStoriesRefreshing by remember(kind) { mutableStateOf(false) }
+    var trueStoriesLoadingMore by remember(kind) { mutableStateOf(false) }
+    var apocalypticPage by remember(kind) { mutableIntStateOf(1) }
+    var apocalypticHasMore by remember(kind) { mutableStateOf(true) }
+    var apocalypticRefreshing by remember(kind) { mutableStateOf(false) }
+    var apocalypticLoadingMore by remember(kind) { mutableStateOf(false) }
+    var trueCrimePage by remember(kind) { mutableIntStateOf(1) }
+    var trueCrimeHasMore by remember(kind) { mutableStateOf(true) }
+    var trueCrimeRefreshing by remember(kind) { mutableStateOf(false) }
+    var trueCrimeLoadingMore by remember(kind) { mutableStateOf(false) }
+    var filtersButtonBounds by remember(kind) { mutableStateOf<Rect?>(null) }
+    val likedSeeds = remember(kind, refresh) { store.all().filter { it.liked == true && it.state != "hidden" }.map { it.media } }
+    var tasteSeeds by remember(kind) { mutableStateOf<List<Models.Media>>(emptyList()) }
+    var tasteMedia by remember(kind) { mutableStateOf<List<Models.Media>>(emptyList()) }
+    var tastePageNumber by remember(kind) { mutableIntStateOf(1) }
+    var tasteRefreshVersion by remember(kind) { mutableIntStateOf(0) }
+    var tasteRefreshing by remember(kind) { mutableStateOf(false) }
+    var tasteLoadingMore by remember(kind) { mutableStateOf(false) }
+    var tasteHasMore by remember(kind) { mutableStateOf(true) }
     val pullToRefreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
     fun expandRail(name: String, bounds: Rect?) {
@@ -952,7 +1228,7 @@ private fun CatalogScreen(tab: Tab, api: TmdbApi, store: LibraryStore, refresh: 
         expandedRailName = null
         onExpandedChange(false)
     }
-    LaunchedEffect(tab, reloadVersion) {
+    LaunchedEffect(kind, reloadVersion) {
         if (!api.configured()) { error = "Configura la chiave TMDB dalle impostazioni."; refreshing = false; return@LaunchedEffect }
         error = null
         if (reloadVersion > 0) railPages.clear()
@@ -972,7 +1248,7 @@ private fun CatalogScreen(tab: Tab, api: TmdbApi, store: LibraryStore, refresh: 
         }.onFailure { error = "Non riesco a caricare il catalogo." }
         refreshing = false
     }
-    LaunchedEffect(tab, reloadVersion, tasteRefreshVersion, likedSeeds.isNotEmpty()) {
+    LaunchedEffect(kind, reloadVersion, tasteRefreshVersion, likedSeeds.isNotEmpty()) {
         if (likedSeeds.isEmpty() || !api.configured()) {
             tasteMedia = emptyList(); tasteSeeds = emptyList(); tasteRefreshing = false
             return@LaunchedEffect
@@ -1135,35 +1411,57 @@ private fun CatalogScreen(tab: Tab, api: TmdbApi, store: LibraryStore, refresh: 
                 reloadVersion++
             }
         },
-        modifier = modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize(),
         state = pullToRefreshState,
         indicator = {
             PullToRefreshDefaults.Indicator(
                 state = pullToRefreshState,
                 isRefreshing = refreshing,
-                modifier = Modifier.align(Alignment.TopCenter).offset(y = 92.dp),
+                modifier = Modifier.align(Alignment.TopCenter).offset(y = 150.dp),
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
         }
     ) {
         when {
-            error != null -> ErrorPane(error!!)
-            data == null -> LoadingPane()
+            error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                EmptyState(R.drawable.ic_refresh, "Catalogo non disponibile", error!!, action = "Riprova") { refreshing = true; error = null; reloadVersion++ }
+            }
+            data == null -> Column(Modifier.fillMaxSize()) {
+                Spacer(Modifier.statusBarsPadding().height(136.dp))
+                LoadingSkeleton(Modifier.padding(horizontal = 20.dp).fillMaxWidth().height(500.dp).clip(RoundedCornerShape(30.dp)))
+                Spacer(Modifier.height(26.dp))
+                RailSkeleton(null)
+            }
             else -> {
                 val hidden = store.byState("hidden").map { it.id }.toSet()
                 val featured = (data!!.featured + data!!.trending)
                     .filter { it.id !in hidden && it.backdrop.isNotBlank() }
                     .distinctBy { it.id }
                     .take(8)
-                val toolbarBottom = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + FloatingToolbarHeight
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = toolbarBottom, bottom = 128.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
+                LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 136.dp, bottom = 132.dp), verticalArrangement = Arrangement.spacedBy(28.dp)) {
                     if (featured.isNotEmpty()) item {
-                        FeaturedCarousel(featured, tab, store, onOpen, onChanged)
+                        FeaturedCarousel(featured, type, store, onOpen, onChanged)
                     }
                     item {
-                        FilledTonalButton({ onFilters(filtersButtonBounds) }, modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth().height(52.dp).onGloballyPositioned { filtersButtonBounds = it.boundsInRoot() }, shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = Raised)) {
-                            Icon(painterResource(R.drawable.ic_search), null); Spacer(Modifier.width(9.dp)); Text("Piattaforma, genere e filtri")
+                        val interaction = remember { MutableInteractionSource() }
+                        Row(
+                            Modifier.padding(horizontal = 20.dp).fillMaxWidth().height(56.dp)
+                                .onGloballyPositioned { filtersButtonBounds = it.boundsInRoot() }
+                                .pressScale(interaction, .97f)
+                                .glass(RoundedCornerShape(20.dp))
+                                .clickable(interaction, indication = null) { onFilters(filtersButtonBounds) }
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(Modifier.size(34.dp).clip(CircleShape).background(Sw.Accent.copy(alpha = .16f)), contentAlignment = Alignment.Center) {
+                                Icon(painterResource(R.drawable.ic_tune), null, tint = Sw.Accent, modifier = Modifier.size(19.dp))
+                            }
+                            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                Text("Filtra per piattaforma e genere", color = Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text("Netflix, Prime Video, Disney+ e altri", color = Muted, fontSize = 12.sp)
+                            }
+                            Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Muted)
                         }
                     }
                     item { NewReleasesSection(type, newReleases, store, refresh, onOpen, onAction) { bounds -> expandRail(NEW_RELEASES_RAIL, bounds) } }
@@ -1252,7 +1550,7 @@ private fun CatalogScreen(tab: Tab, api: TmdbApi, store: LibraryStore, refresh: 
 @Composable
 private fun FeaturedCarousel(
     media: List<Models.Media>,
-    tab: Tab,
+    type: String,
     store: LibraryStore,
     onOpen: (Models.Media) -> Unit,
     onChanged: () -> Unit
@@ -1274,31 +1572,31 @@ private fun FeaturedCarousel(
         if (!detailOpen && media.size > 1) {
             snapshotFlow { pagerState.settledPage }.collectLatest { page ->
                 delay(6500)
-                if (!pagerState.isScrollInProgress) pagerState.animateScrollToPage(page + 1)
+                if (!pagerState.isScrollInProgress) pagerState.animateScrollToPage(page + 1, animationSpec = tween(900, easing = Sw.Emphasized))
             }
         }
     }
     Column {
-        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().height(520.dp)) { page ->
+        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().height(500.dp), contentPadding = PaddingValues(horizontal = 20.dp), pageSpacing = 12.dp, beyondViewportPageCount = 1) { page ->
             val item = media[page % media.size]
             val inList = store.state(item) == "saved" || store.state(item) == "progress" || store.state(item) == "watched"
-            HeroFeature(item, tab, inList, onOpen) { shouldBeInList ->
+            HeroFeature(item, type, inList, onOpen, pageOffset = { (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction }) { shouldBeInList ->
                 if (shouldBeInList) store.save(item) else store.remove(item)
                 onChanged()
             }
         }
         if (media.size > 1) {
             Row(
-                Modifier.fillMaxWidth().padding(top = 9.dp),
+                Modifier.fillMaxWidth().padding(top = 4.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 media.indices.forEach { index ->
+                    val active = pagerState.currentPage % media.size == index
+                    val width by animateDpAsState(if (active) 24.dp else 6.dp, spring(dampingRatio = .7f, stiffness = 400f), label = "hero-indicator")
                     Box(
-                        Modifier.padding(horizontal = 3.dp)
-                            .size(if (pagerState.currentPage % media.size == index) 8.dp else 6.dp)
-                            .clip(CircleShape)
-                            .background(if (pagerState.currentPage % media.size == index) CrimsonSoft else Muted.copy(alpha = .45f))
+                        Modifier.padding(horizontal = 3.dp).height(6.dp).width(width).clip(CircleShape)
+                            .then(if (active) Modifier.background(Sw.Brand) else Modifier.background(Muted.copy(alpha = .35f)))
                     )
                 }
             }
@@ -1307,7 +1605,7 @@ private fun FeaturedCarousel(
 }
 
 @OptIn(ExperimentalSharedTransitionApi::class)
-@Composable private fun HeroFeature(media: Models.Media, tab: Tab, inList: Boolean, onOpen: (Models.Media) -> Unit, onToggleList: (Boolean) -> Unit) {
+@Composable private fun HeroFeature(media: Models.Media, type: String, inList: Boolean, onOpen: (Models.Media) -> Unit, pageOffset: () -> Float, onToggleList: (Boolean) -> Unit) {
     var saved by remember(media.id) { mutableStateOf(inList) }
     val sourceKey = rememberArtworkSourceKey(media)
     val registerSource = LocalRegisterArtworkSource.current
@@ -1315,14 +1613,19 @@ private fun FeaturedCarousel(
     val transitionScope = LocalSharedTransitionScope.current
     val hiddenArtworkKeys = LocalHiddenArtworkKeys.current
     val closingArtworkKey = LocalClosingArtworkKey.current
+    val kenBurns = rememberInfiniteTransition(label = "ken-burns")
+    val zoom by kenBurns.animateFloat(1.02f, 1.12f, infiniteRepeatable(tween(16000, easing = LinearEasing), RepeatMode.Reverse), label = "ken-burns-zoom")
     LaunchedEffect(inList) { saved = inList }
-    Box(Modifier.fillMaxWidth().height(520.dp).onGloballyPositioned { registerBounds(sourceKey, it.boundsInRoot()) }) {
+    Box(Modifier.fillMaxWidth().height(500.dp).graphicsLayer {
+        val scale = 1f - .08f * kotlin.math.abs(pageOffset()).coerceIn(0f, 1f)
+        scaleX = scale; scaleY = scale
+    }.onGloballyPositioned { registerBounds(sourceKey, it.boundsInRoot()) }) {
         AnimatedVisibility(
             visible = sourceKey !in hiddenArtworkKeys,
-            enter = fadeIn(tween(320, easing = LinearEasing)),
-            exit = fadeOut(tween(320))
+            enter = fadeIn(tween(140)),
+            exit = fadeOut(tween(120))
         ) {
-            val sharedModifier = if (transitionScope != null && sourceKey != closingArtworkKey) {
+            val sharedModifier = if (transitionScope != null && sourceKey != closingArtworkKey && sourceKey.startsWith("saga-")) {
                 with(transitionScope) {
                     Modifier.sharedBounds(
                         sharedContentState = rememberSharedContentState(sourceKey),
@@ -1335,38 +1638,59 @@ private fun FeaturedCarousel(
                     )
                 }
             } else Modifier
-            Box(sharedModifier.fillMaxSize().clickable { registerSource(sourceKey); onOpen(media) }) {
-                RemoteImage(media.backdrop.ifBlank { media.poster }, Modifier.fillMaxSize(), ContentScale.Crop)
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f)))
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0x5507080C), Night), startY = 150f)))
-                Column(Modifier.align(Alignment.BottomStart).padding(horizontal = 20.dp, vertical = 22.dp)) {
-                    Text(if (tab == Tab.TV) "SERIE IN EVIDENZA" else "FILM IN EVIDENZA", color = CrimsonSoft, fontWeight = FontWeight.Black, letterSpacing = 1.6.sp, fontSize = 12.sp)
-                    Text(media.title, color = Ink, style = MaterialTheme.typography.displaySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
-                    Text("${media.year}  •  ★ ${rating(media.rating)}  •  ${media.genres.take(2).joinToString(" • ")}", color = Muted, fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp))
-                    Row(Modifier.padding(top = 18.dp).fillMaxWidth().height(56.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(sharedModifier.fillMaxSize().shadow(18.dp, RoundedCornerShape(30.dp), spotColor = Color.Black).clip(RoundedCornerShape(30.dp)).clickable(remember { MutableInteractionSource() }, indication = null) { registerSource(sourceKey); onOpen(media) }) {
+                RemoteImage(media.backdrop.ifBlank { media.poster }, Modifier.fillMaxSize().graphicsLayer {
+                    translationX = pageOffset() * size.width * .3f
+                    scaleX = zoom
+                    scaleY = zoom
+                }, ContentScale.Crop)
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .4f to Color.Transparent, .68f to Color.Black.copy(alpha = .55f), 1f to Color.Black.copy(alpha = .94f))))
+                Box(Modifier.fillMaxSize().border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .22f), Color.White.copy(alpha = .03f))), RoundedCornerShape(30.dp)))
+                Column(
+                    Modifier.align(Alignment.BottomStart).padding(18.dp).graphicsLayer {
+                        val offset = pageOffset()
+                        translationX = offset * size.width * .35f
+                        alpha = (1f - kotlin.math.abs(offset) * 1.4f).coerceIn(0f, 1f)
+                    }
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.clip(CircleShape).background(Sw.Brand).padding(horizontal = 10.dp, vertical = 4.dp)) {
+                            Text("IN EVIDENZA", color = Color.White, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp, fontSize = 10.sp)
+                        }
+                        Text(if (type == "tv") "Serie TV" else "Film", color = Color.White.copy(alpha = .75f), fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(start = 10.dp))
+                    }
+                    Text(media.title, color = Color.White, style = MaterialTheme.typography.displaySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp))
+                    Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (media.rating > 0) MetaPill(rating(media.rating), icon = R.drawable.ic_star, tint = Sw.Amber, background = Color.White.copy(alpha = .12f))
+                        MetaPill(media.year, background = Color.White.copy(alpha = .12f))
+                        Text(media.genres.take(2).joinToString(" · "), color = Color.White.copy(alpha = .75f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Row(Modifier.padding(top = 18.dp).fillMaxWidth().height(54.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
                             onClick = { registerSource(sourceKey); onOpen(media) },
                             colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
                             contentPadding = PaddingValues(horizontal = 10.dp),
-                            shape = RoundedCornerShape(18.dp),
-                            modifier = Modifier.weight(1f).fillMaxHeight().crimsonGlow(RoundedCornerShape(18.dp), 7.dp)
+                            shape = CircleShape,
+                            modifier = Modifier.weight(1f).fillMaxHeight().crimsonGlow(CircleShape, 10.dp)
                         ) {
                             Icon(painterResource(R.drawable.ic_play), null, Modifier.size(20.dp))
                             Spacer(Modifier.width(7.dp))
-                            Text("Dettagli", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("Scopri di più", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
-                        FilledTonalButton(
+                        Button(
                             onClick = { saved = !saved; onToggleList(saved) },
-                            modifier = Modifier.weight(1f).fillMaxHeight().then(if (saved) Modifier.crimsonGlow(RoundedCornerShape(18.dp), 6.dp) else Modifier),
+                            modifier = Modifier.weight(1f).fillMaxHeight().glass(CircleShape, if (saved) .5f else .7f),
                             contentPadding = PaddingValues(horizontal = 10.dp),
-                            colors = ButtonDefaults.filledTonalButtonColors(containerColor = if (saved) Color.Transparent else MaterialTheme.colorScheme.surfaceVariant, contentColor = if (saved) Color.White else MaterialTheme.colorScheme.onSurfaceVariant),
-                            shape = RoundedCornerShape(18.dp)
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = if (saved) LikeGreen else Color.White),
+                            shape = CircleShape
                         ) {
-                            AnimatedContent(saved, label = "hero-list-action") { isSaved ->
+                            AnimatedContent(saved, label = "hero-list-action", transitionSpec = {
+                                (fadeIn(tween(200)) + scaleIn(spring(dampingRatio = .5f, stiffness = 500f), initialScale = .6f)) togetherWith fadeOut(tween(100))
+                            }) { isSaved ->
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(painterResource(if (isSaved) R.drawable.ic_check else R.drawable.ic_add), null, Modifier.size(20.dp))
                                     Spacer(Modifier.width(7.dp))
-                                    Text(if (isSaved) "Nella mia lista" else "La mia lista", fontSize = 13.sp,
+                                    Text(if (isSaved) "In lista" else "La mia lista", fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }
@@ -1374,6 +1698,47 @@ private fun FeaturedCarousel(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SpotlightRail(
+    eyebrow: String,
+    title: String,
+    subtitle: String,
+    icon: @Composable () -> Unit,
+    accent: Color,
+    background: Brush,
+    media: List<Models.Media>,
+    store: LibraryStore,
+    onOpen: (Models.Media) -> Unit,
+    onAction: (Models.Media) -> Unit,
+    onSeeAll: (Rect?) -> Unit,
+    onLoadMore: (() -> Unit)?,
+    loadingMore: Boolean
+) {
+    val shape = RoundedCornerShape(30.dp)
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp).reveal()
+            .clip(shape).background(background)
+            .border(1.dp, Brush.verticalGradient(listOf(accent.copy(alpha = .55f), accent.copy(alpha = .08f))), shape)
+            .padding(vertical = 18.dp)
+    ) {
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            icon()
+            Column(Modifier.padding(start = 12.dp).weight(1f)) {
+                Text(eyebrow, color = accent, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.3.sp)
+                Text(title, style = MaterialTheme.typography.titleLarge, color = Ink)
+            }
+            SectionHeader("", action = "Tutti", onAction = onSeeAll, modifier = Modifier.width(110.dp))
+        }
+        Text(subtitle, color = Muted, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+        LazyRow(Modifier.padding(top = 4.dp), contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(media, key = { it.id }) { item ->
+                PosterCard(item, store.get(item), null, false, { onOpen(item) }, { onAction(item) })
+            }
+            if (onLoadMore != null) item { LoadMoreTile(onLoadMore, loadingMore, accent) }
         }
     }
 }
@@ -1388,40 +1753,18 @@ private fun DiscoveryRail(
     loadingMore: Boolean,
     onSeeAll: (Rect?) -> Unit
 ) {
-    var seeAllBounds by remember { mutableStateOf<Rect?>(null) }
-    Surface(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .48f),
-        shape = RoundedCornerShape(30.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Crimson.copy(alpha = .7f))
-    ) {
-        Column(Modifier.padding(vertical = 16.dp)) {
-            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = Color.Transparent, shape = CircleShape, modifier = Modifier.size(42.dp).crimsonGlow(CircleShape, 7.dp)) {
-                    Icon(painterResource(R.drawable.ic_sparkles), null, tint = Color.White, modifier = Modifier.padding(10.dp))
-                }
-                Column(Modifier.padding(start = 12.dp).weight(1f)) {
-                    Text("SCELTI PER SORPRENDERTI", color = CrimsonSoft, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.3.sp)
-                    Text(MASTERPIECES_RAIL, style = MaterialTheme.typography.titleLarge, color = Ink)
-                }
-                TextButton({ onSeeAll(seeAllBounds) }, modifier = Modifier.onGloballyPositioned { seeAllBounds = it.boundsInRoot() }) { Text("Vedi tutto") }
+    SpotlightRail(
+        "SCELTI PER SORPRENDERTI", MASTERPIECES_RAIL, "Titoli molto apprezzati, anche fuori dai soliti riflettori.",
+        icon = {
+            Box(Modifier.size(44.dp).brandGlow(CircleShape, 8.dp), contentAlignment = Alignment.Center) {
+                Icon(painterResource(R.drawable.ic_sparkles), null, tint = Color.White, modifier = Modifier.size(22.dp))
             }
-            Text("Titoli molto apprezzati, anche fuori dai soliti riflettori.", color = Muted, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-            LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(media, key = { it.id }) { item ->
-                    PosterCard(item, store.get(item), null, false, { onOpen(item) }, { onAction(item) })
-                }
-                item {
-                    FilledTonalButton(onClick = onLoadMore, enabled = !loadingMore,
-                        modifier = Modifier.width(148.dp).height(220.dp), shape = RoundedCornerShape(22.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = Raised)) {
-                        if (loadingMore) CircularProgressIndicator(Modifier.size(24.dp), color = Crimson)
-                        else { Icon(painterResource(R.drawable.ic_add), null); Spacer(Modifier.width(6.dp)); Text("Carica altri") }
-                    }
-                }
-            }
-        }
-    }
+        },
+        accent = Sw.Orange,
+        background = Brush.linearGradient(listOf(Color(0xFF2A1612), Color(0xFF15131A), Color(0xFF1A1310))),
+        media = media, store = store, onOpen = onOpen, onAction = onAction, onSeeAll = onSeeAll,
+        onLoadMore = onLoadMore, loadingMore = loadingMore
+    )
 }
 
 @Composable
@@ -1431,65 +1774,50 @@ private fun TasteRail(
     onSeeAll: (Rect?) -> Unit, onLoadMore: () -> Unit,
     loadingMore: Boolean, hasMore: Boolean
 ) {
-    var seeAllBounds by remember { mutableStateOf<Rect?>(null) }
-    Surface(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-        color = Color(0xFF17251F), shape = RoundedCornerShape(30.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, LikeGreen.copy(alpha = .48f))) {
-        Column(Modifier.padding(vertical = 17.dp)) {
-            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = LikeGreen.copy(alpha = .16f), shape = CircleShape,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, LikeGreen.copy(alpha = .5f)),
-                    modifier = Modifier.size(43.dp)) {
-                    Box(contentAlignment = Alignment.Center) { ReactionIcon(true, Modifier.size(23.dp)) }
-                }
-                Column(Modifier.padding(start = 12.dp).weight(1f)) {
-                    Text("IN BASE AI TUOI MI PIACE", color = LikeGreen, fontSize = 10.sp,
-                        fontWeight = FontWeight.Black, letterSpacing = 1.2.sp)
-                    Text(TASTE_RAIL, style = MaterialTheme.typography.titleLarge, color = Ink)
-                }
-                TextButton({ onSeeAll(seeAllBounds) },
-                    modifier = Modifier.onGloballyPositioned { seeAllBounds = it.boundsInRoot() }) { Text("Vedi tutto") }
+    SpotlightRail(
+        "IN BASE AI TUOI MI PIACE", TASTE_RAIL, "Storie affini ai titoli che hai apprezzato.",
+        icon = {
+            Box(Modifier.size(44.dp).clip(CircleShape).background(LikeGreen.copy(alpha = .16f)).border(1.dp, LikeGreen.copy(alpha = .5f), CircleShape), contentAlignment = Alignment.Center) {
+                ReactionIcon(true, Modifier.size(22.dp))
             }
-            Text("Storie affini ai titoli che hai apprezzato.", color = Muted,
-                fontSize = 14.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-            LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(media, key = { it.id }) { item ->
-                    PosterCard(item, store.get(item), null, false, { onOpen(item) }, { onAction(item) })
-                }
-                if (hasMore) item {
-                    FilledTonalButton(onClick = onLoadMore, enabled = !loadingMore,
-                        modifier = Modifier.width(148.dp).height(220.dp), shape = RoundedCornerShape(22.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = Raised)) {
-                        if (loadingMore) CircularProgressIndicator(Modifier.size(24.dp), color = LikeGreen)
-                        else { Icon(painterResource(R.drawable.ic_add), null); Spacer(Modifier.width(6.dp)); Text("Carica altri") }
-                    }
-                }
+        },
+        accent = LikeGreen,
+        background = Brush.linearGradient(listOf(Color(0xFF10241D), Color(0xFF13161C), Color(0xFF0F1D19))),
+        media = media, store = store, onOpen = onOpen, onAction = onAction, onSeeAll = onSeeAll,
+        onLoadMore = if (hasMore) onLoadMore else null, loadingMore = loadingMore
+    )
+}
+
+@Composable
+private fun LoadMoreTile(onClick: () -> Unit, loading: Boolean, accent: Color = Sw.Accent) {
+    val interaction = remember { MutableInteractionSource() }
+    Column(
+        Modifier.width(136.dp).aspectRatio(.68f)
+            .pressScale(interaction)
+            .glass(RoundedCornerShape(18.dp))
+            .clickable(interaction, indication = null, enabled = !loading, onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        if (loading) CircularProgressIndicator(Modifier.size(28.dp), color = accent, strokeWidth = 3.dp)
+        else {
+            Box(Modifier.size(50.dp).brandGlow(CircleShape, 8.dp), contentAlignment = Alignment.Center) {
+                Icon(painterResource(R.drawable.ic_add), null, tint = Color.White, modifier = Modifier.size(24.dp))
             }
+            Text("Carica altri", color = Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp))
         }
     }
 }
 
 @Composable
-private fun MediaRail(title: String, media: List<Models.Media>, store: LibraryStore, onOpen: (Models.Media) -> Unit, onAction: (Models.Media) -> Unit, ranked: Boolean = false, progress: Boolean = false, contentVersion: Int = 0, loadMore: (() -> Unit)? = null, loadingMore: Boolean = false, onSeeAll: ((Rect?) -> Unit)? = null, spacious: Boolean = false, onLongPress: ((Models.Media) -> Unit)? = null, headerContent: (@Composable () -> Unit)? = null, releaseDates: Boolean = false, footerFor: ((Models.Media) -> String?)? = null) {
+private fun MediaRail(title: String, media: List<Models.Media>, store: LibraryStore, onOpen: (Models.Media) -> Unit, onAction: (Models.Media) -> Unit, ranked: Boolean = false, progress: Boolean = false, contentVersion: Int = 0, loadMore: (() -> Unit)? = null, loadingMore: Boolean = false, onSeeAll: ((Rect?) -> Unit)? = null, spacious: Boolean = false, onLongPress: ((Models.Media) -> Unit)? = null, headerContent: (@Composable () -> Unit)? = null, releaseDates: Boolean = false, footerFor: ((Models.Media) -> String?)? = null, eyebrow: String? = null) {
     if (media.isEmpty() && headerContent == null) return
-    var seeAllBounds by remember { mutableStateOf<Rect?>(null) }
-    Column(Modifier.padding(top = if (spacious) 16.dp else 0.dp, bottom = if (spacious) 10.dp else 0.dp)) {
-        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp).padding(bottom = if (spacious) 10.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, style = MaterialTheme.typography.titleLarge, color = Ink, modifier = Modifier.weight(1f))
-            if (onSeeAll != null) TextButton({ onSeeAll(seeAllBounds) }, modifier = Modifier.onGloballyPositioned { seeAllBounds = it.boundsInRoot() }) { Text("Vedi tutto") }
-        }
+    Column(Modifier.reveal().padding(top = if (spacious) 18.dp else 0.dp, bottom = if (spacious) 6.dp else 0.dp)) {
+        SectionHeader(title, eyebrow = eyebrow, onAction = onSeeAll)
         headerContent?.invoke()
-        LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(media, key = { it.id }) { item -> PosterCard(item, store.get(item), ranked.then(media.indexOf(item) + 1), progress, { onOpen(item) }, { onAction(item) }, contentVersion, onLongPress = onLongPress?.let { handler -> { handler(item) } }, releaseDates = releaseDates, footerOverride = footerFor?.invoke(item)) }
-            if (loadMore != null) item {
-                FilledTonalButton(onClick = loadMore, modifier = Modifier.width(148.dp).height(220.dp), shape = RoundedCornerShape(22.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = Raised)) {
-                    if (loadingMore) CircularProgressIndicator(Modifier.size(24.dp), color = Crimson) else {
-                        Icon(painterResource(R.drawable.ic_add), null)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Carica altri")
-                    }
-                }
-            }
+        LazyRow(Modifier.padding(top = 12.dp), contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(if (ranked) 6.dp else 12.dp)) {
+            itemsIndexed(media, key = { _, item -> item.id }) { index, item -> PosterCard(item, store.get(item), ranked.then(index + 1), progress, { onOpen(item) }, { onAction(item) }, contentVersion, onLongPress = onLongPress?.let { handler -> { handler(item) } }, releaseDates = releaseDates, footerOverride = footerFor?.invoke(item)) }
+            if (loadMore != null) item { LoadMoreTile(loadMore, loadingMore) }
         }
     }
 }
@@ -1509,10 +1837,10 @@ private fun SharedArtworkSource(media: Models.Media, sourceKey: String, modifier
     Box(modifier.onGloballyPositioned { registerBounds(sourceKey, it.boundsInRoot()) }) {
         AnimatedVisibility(
             visible = sourceKey !in hiddenArtworkKeys,
-            enter = fadeIn(tween(320, easing = LinearEasing)),
-            exit = fadeOut(tween(320))
+            enter = fadeIn(tween(140)),
+            exit = fadeOut(tween(120))
         ) {
-            val sharedModifier = if (transitionScope != null && sourceKey != closingArtworkKey) {
+            val sharedModifier = if (transitionScope != null && sourceKey != closingArtworkKey && sourceKey.startsWith("saga-")) {
                 with(transitionScope) {
                     Modifier.sharedBounds(
                         sharedContentState = rememberSharedContentState(sourceKey),
@@ -1552,17 +1880,44 @@ private fun Modifier.sharedDetailBounds(media: Models.Media, artworkKey: String?
 @Composable private fun PosterCard(media: Models.Media, entry: Models.LibraryEntry?, rank: Int?, progress: Boolean, open: () -> Unit, actions: () -> Unit, contentVersion: Int = 0, onLongPress: (() -> Unit)? = null, releaseDates: Boolean = false, footerOverride: String? = null) {
     val sourceKey = rememberArtworkSourceKey(media)
     val registerSource = LocalRegisterArtworkSource.current
-    Column(Modifier.width(if (rank != null) 172.dp else 148.dp).noRippleCombinedClickable(onClick = { registerSource(sourceKey); open() }, onLongClick = { (onLongPress ?: actions)() })) {
-        Box {
-            SharedArtworkSource(media, sourceKey, Modifier.fillMaxWidth().aspectRatio(.68f), RoundedCornerShape(22.dp))
-            if (rank != null) Surface(color = Color.Transparent, shape = RoundedCornerShape(topStart = 14.dp, bottomEnd = 16.dp), modifier = Modifier.align(Alignment.TopStart).crimsonGlow(RoundedCornerShape(topStart = 14.dp, bottomEnd = 16.dp), 5.dp)) { Text("$rank", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp)) }
-            PosterStatusBadges(entry?.liked, entry?.pinned == true, entry?.state)
+    val posterWidth = 136.dp
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    // Every ranked card reserves the same slot, so posters stay evenly spaced. All numerals share one
+    // size, chosen so the widest ("10") fits the slot entirely; each ends right where the poster begins.
+    val rankInset = 82.dp
+    val rankSlot = rankInset + 10.dp
+    val (rankStyle, rankScale) = remember(rank, density) {
+        val base = androidx.compose.ui.text.TextStyle(
+            brush = Brush.verticalGradient(listOf(Color.White.copy(alpha = .92f), Sw.Accent.copy(alpha = .35f), Color.Transparent)),
+            fontSize = 124.sp, fontWeight = FontWeight.Black, letterSpacing = if ((rank ?: 0) >= 10) (-14).sp else (-6).sp
+        )
+        val widest = measurer.measure("10", base.copy(letterSpacing = (-14).sp)).size.width
+        val target = with(density) { rankSlot.toPx() }
+        val scale = if (widest > target) target / widest else 1f
+        base.copy(fontSize = base.fontSize * scale, letterSpacing = base.letterSpacing * scale) to scale
+    }
+    Column(Modifier.width(if (rank != null) posterWidth + rankInset else posterWidth).noRippleCombinedClickable(onClick = { registerSource(sourceKey); open() }, onLongClick = { (onLongPress ?: actions)() })) {
+        Box(Modifier.fillMaxWidth()) {
+            if (rank != null) Text(
+                "$rank",
+                style = rankStyle,
+                maxLines = 1, softWrap = false,
+                textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                modifier = Modifier.align(Alignment.BottomStart).width(rankSlot).offset(y = 14.dp * rankScale)
+            )
+            Box(Modifier.width(posterWidth).align(Alignment.BottomEnd)) {
+                SharedArtworkSource(media, sourceKey, Modifier.fillMaxWidth().aspectRatio(.68f), RoundedCornerShape(18.dp))
+                Box(Modifier.matchParentSize().border(1.dp, Color.White.copy(alpha = .07f), RoundedCornerShape(18.dp)))
+                if (media.rating > 0) MetaPill(rating(media.rating), Modifier.align(Alignment.TopStart).padding(7.dp), icon = R.drawable.ic_star, tint = Sw.Amber)
+                PosterStatusBadges(entry?.liked, entry?.pinned == true, entry?.state)
+            }
         }
-        Text(media.title, color = Ink, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
+        Text(media.title, color = Ink, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 9.dp, start = if (rank != null) rankInset else 2.dp))
         val footer = remember(entry?.nextSeason, entry?.nextEpisode, entry?.state, progress, contentVersion) {
-            if (progress && entry != null) "S${entry.nextSeason} · E${entry.nextEpisode}" else "${media.year}  ★ ${rating(media.rating)}"
+            if (progress && entry != null) "S${entry.nextSeason} · E${entry.nextEpisode}" else "${media.year} · ${if (media.isSeries) "Serie TV" else "Film"}"
         }
-        Text(footerOverride ?: if (releaseDates) releaseLabel(media) else footer, color = if (progress || footerOverride != null) CrimsonSoft else Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+        Text(footerOverride ?: if (releaseDates) releaseLabel(media) else footer, color = if (progress || footerOverride != null) CrimsonSoft else Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp, start = if (rank != null) rankInset else 2.dp))
     }
 }
 
@@ -1717,70 +2072,57 @@ private fun DetailScreen(
                 contentPadding = PaddingValues(bottom = 44.dp)
             ) {
                 item {
-                    Box(Modifier.fillMaxWidth().height(520.dp).background(Brush.verticalGradient(listOf(Raised, Night)))) {
-                        Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 30.dp).width(260.dp).aspectRatio(.68f)) {
-                            AnimatedVisibility(
-                                visible = !posterFullscreen,
-                                enter = fadeIn(tween(220)),
-                                exit = fadeOut(tween(140)),
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                val posterModifier = if (transitionScope != null) with(transitionScope) {
-                                    Modifier.sharedBounds(
-                                        sharedContentState = rememberSharedContentState(posterTransitionKey),
-                                        animatedVisibilityScope = this@AnimatedVisibility,
-                                        boundsTransform = { _, _ -> tween(360, easing = FastOutSlowInEasing) },
-                                        resizeMode = SharedTransitionScope.ResizeMode.ScaleToBounds()
-                                    )
-                                } else Modifier
-                                Box(posterModifier.fillMaxSize().clip(RoundedCornerShape(26.dp)).clickable {
-                                    posterZoom = 1f
-                                    posterPan = Offset.Zero
-                                    posterFullscreen = true
-                                }) {
-                                    RemoteImage(initial.poster.ifBlank { initial.backdrop }, Modifier.fillMaxSize(), ContentScale.Crop, animatedPlaceholder = true)
-                                    if (reaction != null) ReactionBadge(reaction, Modifier.align(Alignment.TopEnd).padding(12.dp))
+                    val backdropUrl = media.backdrop.ifBlank { initial.backdrop }.ifBlank { initial.poster }
+                    Box(Modifier.fillMaxWidth().height(520.dp)) {
+                        RemoteImage(backdropUrl, Modifier.fillMaxWidth().height(420.dp).graphicsLayer {
+                            val offset = if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 0f
+                            translationY = offset * .5f
+                            val zoom = 1f + offset / 4000f
+                            scaleX = zoom; scaleY = zoom
+                        }, ContentScale.Crop, animatedPlaceholder = true)
+                        Box(Modifier.fillMaxWidth().height(422.dp).background(Brush.verticalGradient(0f to Color.Black.copy(alpha = .55f), .3f to Color.Transparent, .68f to Night.copy(alpha = .55f), 1f to Night)))
+                        Row(Modifier.align(Alignment.BottomStart).padding(horizontal = 20.dp), verticalAlignment = Alignment.Bottom) {
+                            Box(Modifier.width(134.dp).aspectRatio(.68f).shadow(26.dp, RoundedCornerShape(20.dp), ambientColor = Sw.Red, spotColor = Sw.Red)) {
+                                androidx.compose.animation.AnimatedVisibility(
+                                    visible = !posterFullscreen,
+                                    enter = fadeIn(tween(220)),
+                                    exit = fadeOut(tween(140)),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    val posterModifier = if (transitionScope != null) with(transitionScope) {
+                                        Modifier.sharedBounds(
+                                            sharedContentState = rememberSharedContentState(posterTransitionKey),
+                                            animatedVisibilityScope = this@AnimatedVisibility,
+                                            boundsTransform = { _, _ -> tween(360, easing = FastOutSlowInEasing) },
+                                            resizeMode = SharedTransitionScope.ResizeMode.ScaleToBounds()
+                                        )
+                                    } else Modifier
+                                    Box(posterModifier.fillMaxSize().clip(RoundedCornerShape(20.dp)).border(1.dp, Color.White.copy(alpha = .14f), RoundedCornerShape(20.dp)).clickable {
+                                        posterZoom = 1f
+                                        posterPan = Offset.Zero
+                                        posterFullscreen = true
+                                    }) {
+                                        RemoteImage(initial.poster.ifBlank { initial.backdrop }, Modifier.fillMaxSize(), ContentScale.Crop, animatedPlaceholder = true)
+                                        if (reaction != null) ReactionBadge(reaction, Modifier.align(Alignment.TopEnd).padding(8.dp).scale(.85f))
+                                    }
                                 }
                             }
-                        }
-                        FilledTonalIconButton(closeDetail, Modifier.statusBarsPadding().padding(16.dp).align(Alignment.TopStart), colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color(0xCC1C1D23))) { Icon(painterResource(R.drawable.ic_back), "Indietro") }
-                        Row(
-                            Modifier.statusBarsPadding().padding(16.dp).align(Alignment.TopEnd),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            FilledTonalIconButton(
-                                onClick = { if (!refreshingDetails) detailReloadVersion++ },
-                                enabled = !refreshingDetails,
-                                colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color(0xCC1C1D23))
-                            ) {
-                                if (refreshingDetails) CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
-                                else Icon(painterResource(R.drawable.ic_refresh), "Aggiorna i dati", tint = Color.White)
+                            Column(Modifier.padding(start = 16.dp, bottom = 4.dp).weight(1f)) {
+                                Text(if (media.isSeries) "SERIE TV" else "FILM", color = Sw.Accent, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.6.sp)
+                                Text(media.title, style = MaterialTheme.typography.headlineMedium, color = Ink, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                                if (media.tagline.isNotBlank()) Text(media.tagline, color = Muted, fontSize = 13.sp, lineHeight = 17.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
                             }
-                            if (inList) FilledTonalIconButton(
-                                onClick = {
-                                    store.togglePinned(media)
-                                    pinned = store.get(media)?.pinned == true
-                                    listVersion++
-                                    onRefresh()
-                                },
-                                colors = IconButtonDefaults.filledTonalIconButtonColors(
-                                    containerColor = if (pinned) DeepCrimson else Color(0xCC1C1D23)
-                                )
-                            ) {
-                                Icon(painterResource(R.drawable.ic_push_pin),
-                                    if (pinned) "Rimuovi dai fissati" else "Fissa in cima alla home",
-                                    tint = if (pinned) Color(0xFFFFD166) else Color.White,
-                                    modifier = Modifier.graphicsLayer { rotationZ = if (pinned) -35f else 0f })
-                            }
-                            FilledTonalIconButton({ hideConfirm = true }, colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color(0xCC1C1D23))) { Icon(painterResource(R.drawable.ic_visibility_off), "Nascondi") }
                         }
                     }
                 }
                 item {
-                    Column(Modifier.padding(horizontal = 20.dp)) {
-                        Text(media.title, style = MaterialTheme.typography.headlineLarge, color = Ink)
-                        Text(listOfNotNull(media.year, "★ ${rating(media.rating)}", if (media.isSeries) "Serie TV" else "Film", durationLabel(media)).joinToString("  •  "),
-                            color = CrimsonSoft, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                    Column(Modifier.padding(horizontal = 20.dp).reveal(distance = 20.dp)) {
+                        Row(Modifier.padding(top = 18.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (media.rating > 0) MetaPill(rating(media.rating), icon = R.drawable.ic_star, tint = Sw.Amber, background = Sw.Amber.copy(alpha = .14f))
+                            MetaPill(media.year, background = Sw.Raised)
+                            durationLabel(media)?.let { MetaPill(it, background = Sw.Raised) }
+                            media.genres.take(3).forEach { MetaPill(it, tint = Muted, background = Sw.Raised) }
+                        }
                         Row(Modifier.padding(top = 18.dp).height(56.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Button({ if (inList) store.remove(media) else store.save(media); listVersion++; onRefresh() },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
@@ -1900,8 +2242,15 @@ private fun DetailScreen(
                             }
                         }
                         FollowReleaseCard(media, api, refreshVersion, onRefresh)
-                        Text(media.overview, color = Muted, fontSize = 16.sp, lineHeight = 24.sp, modifier = Modifier.padding(top = 22.dp))
-                        if (media.genres.isNotEmpty()) FlowChips(media.genres.toList())
+                        var overviewExpanded by remember(media.id) { mutableStateOf(false) }
+                        Text("Trama", style = MaterialTheme.typography.titleLarge, color = Ink, modifier = Modifier.padding(top = 26.dp))
+                        Text(
+                            media.overview, color = Muted, fontSize = 16.sp, lineHeight = 24.sp,
+                            maxLines = if (overviewExpanded) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 8.dp).animateContentSize(tween(320, easing = Sw.Emphasized)).noRippleClickable { overviewExpanded = !overviewExpanded }
+                        )
+                        if (media.overview.length > 220) Text(if (overviewExpanded) "Mostra meno" else "Leggi tutto", color = Sw.Accent, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                            modifier = Modifier.padding(top = 6.dp).noRippleClickable { overviewExpanded = !overviewExpanded })
                     }
                 }
                 if (imageGallery.isNotEmpty()) item { MediaImageCarousel(imageGallery) }
@@ -1910,6 +2259,32 @@ private fun DetailScreen(
                 item { ProviderGroups(media) }
                 if (saga.isNotEmpty()) item { MediaRail("Della stessa saga", saga, store, onOpen, onAction, contentVersion = refreshVersion, spacious = true) }
                 if (related.isNotEmpty()) item { MediaRail("Potrebbe piacerti", related, store, onOpen, onAction, contentVersion = refreshVersion, loadMore = if (relatedHasMore) loadMoreRelated else null, loadingMore = relatedLoadingMore, spacious = true) }
+            }
+        }
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val barSolid by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > with(density) { 330.dp.toPx() } } }
+        val barAlpha by animateFloatAsState(if (barSolid) 1f else 0f, tween(240), label = "detail-bar")
+        Row(
+            Modifier.fillMaxWidth()
+                .drawBehind { drawRect(Sw.Background.copy(alpha = .96f * barAlpha)) }
+                .statusBarsPadding().padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            GlassIconButton(R.drawable.ic_back, "Indietro") { closeDetail() }
+            Text(media.title, color = Ink, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(horizontal = 12.dp).graphicsLayer { alpha = barAlpha; translationY = (1f - barAlpha) * 12.dp.toPx() })
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.size(44.dp).glass(CircleShape).clip(CircleShape).clickable(enabled = !refreshingDetails) { detailReloadVersion++ }, contentAlignment = Alignment.Center) {
+                    if (refreshingDetails) CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                    else Icon(painterResource(R.drawable.ic_refresh), "Aggiorna i dati", tint = Color.White, modifier = Modifier.size(21.dp))
+                }
+                if (inList) GlassIconButton(R.drawable.ic_push_pin, if (pinned) "Rimuovi dai fissati" else "Fissa in cima alla home", highlighted = pinned) {
+                    store.togglePinned(media)
+                    pinned = store.get(media)?.pinned == true
+                    listVersion++
+                    onRefresh()
+                }
+                GlassIconButton(R.drawable.ic_visibility_off, "Nascondi") { hideConfirm = true }
             }
         }
         AnimatedVisibility(
@@ -1950,13 +2325,13 @@ private fun DetailScreen(
                 FilledTonalIconButton(
                     onClick = closePoster,
                     modifier = Modifier.statusBarsPadding().padding(16.dp).align(Alignment.TopStart),
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color(0xCC1C1D23))
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color(0xCC14161E))
                 ) { Icon(painterResource(R.drawable.ic_close), "Chiudi locandina") }
                 if (posterZoom > 1f) {
                     FilledTonalButton(
                         onClick = { posterZoom = 1f; posterPan = Offset.Zero },
                         modifier = Modifier.navigationBarsPadding().padding(18.dp).align(Alignment.BottomCenter),
-                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = Color(0xCC1C1D23))
+                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = Color(0xCC14161E))
                     ) { Text("Ripristina zoom") }
                 }
             }
@@ -2021,7 +2396,7 @@ private fun DetailScreen(
                         .noRippleCombinedClickable(onClick = { onPersonClick(person, bounds) }, onLongClick = {}),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    RemoteImage(person.profile, Modifier.size(76.dp).clip(CircleShape), ContentScale.Crop)
+                    RemoteImage(person.profile, Modifier.size(76.dp).clip(CircleShape).border(2.dp, Brush.linearGradient(listOf(Sw.Red, Sw.Orange)), CircleShape), ContentScale.Crop, fallbackIcon = R.drawable.ic_person)
                     Text(person.name, color = Ink, fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp).height(38.dp))
                 }
             }
@@ -2096,25 +2471,25 @@ private fun ProviderGridCard(
     included: Boolean,
     onProviderClick: (Models.Provider) -> Unit
 ) {
-    val accent = Color(0xFFEB659B)
+    val accent = Sw.Accent
     val secondary = Color(0xFF9C9BAA)
     val icon = if (included) R.drawable.ic_broadcast else R.drawable.ic_cart
     Surface(
         color = Color.Transparent,
         shape = RoundedCornerShape(25.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp,
-            if (included) Color(0xFF51283B) else Color(0xFF292C34)),
+            if (included) Color(0xFF4A2A22) else Color(0xFF292C34)),
         modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
     ) {
         Column(Modifier.background(Brush.linearGradient(
-            if (included) listOf(Color(0xFF25101D), Color(0xFF0A0B10), Color(0xFF150C15))
+            if (included) listOf(Color(0xFF261611), Color(0xFF0A0B10), Color(0xFF15100E))
             else listOf(Color(0xFF12141B), Color(0xFF090B10))
         )).padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 13.dp)) {
                 Box(Modifier.size(38.dp).background(
-                    Brush.radialGradient(listOf(Color(0xFF59182F), Color(0xFF29121F))), CircleShape
-                ).border(1.dp, Color(0xFF542237), CircleShape), contentAlignment = Alignment.Center) {
+                    Brush.radialGradient(listOf(Color(0xFF5A2418), Color(0xFF2A1510))), CircleShape
+                ).border(1.dp, Color(0xFF5A2A1E), CircleShape), contentAlignment = Alignment.Center) {
                     Icon(painterResource(icon), null, tint = accent, modifier = Modifier.size(23.dp))
                 }
                 Column(Modifier.weight(1f).padding(start = 10.dp)) {
@@ -2162,10 +2537,10 @@ private fun ProviderGridCard(
                                 )
                                 Spacer(Modifier.weight(1f))
                                 Surface(
-                                    color = if (included) Color(0xFF40152A) else Color.Transparent,
+                                    color = if (included) Color(0xFF40201A) else Color.Transparent,
                                     shape = RoundedCornerShape(50),
                                     border = androidx.compose.foundation.BorderStroke(1.dp,
-                                        if (included) Color(0xFF73304D) else Color(0xFF494854)),
+                                        if (included) Color(0xFF7A3A2A) else Color(0xFF494854)),
                                     modifier = Modifier.padding(top = 8.dp).fillMaxWidth()
                                 ) {
                                     Row(Modifier.padding(horizontal = 5.dp, vertical = 6.dp),
@@ -2227,10 +2602,13 @@ private fun providerServiceUrl(provider: Models.Provider): String? {
     val scope = rememberCoroutineScope(); val entry = store.get(media); val state = entry?.state ?: ""; var confirmHide by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val followed = remember(media.id) { ReleaseFollows.isFollowed(context, media.id) }
-    val toggleFollow = rememberFollowToggle(onChanged)
-    var pendingReactionAction by remember(media.id) { mutableStateOf<((Boolean) -> Unit)?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Color(0xFF17161A),
+    // Let the sheet slide away before the caller removes it.
+    val dismiss: () -> Unit = { scope.launch { sheetState.hide() }.invokeOnCompletion { onDismiss() } }
+    val changed: () -> Unit = { scope.launch { sheetState.hide() }.invokeOnCompletion { onChanged() } }
+    val toggleFollow = rememberFollowToggle { changed() }
+    var pendingReactionAction by remember(media.id) { mutableStateOf<((Boolean) -> Unit)?>(null) }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Sw.Surface,
         shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp),
         dragHandle = { BottomSheetDefaults.DragHandle(color = Color(0xFF77717A)) }) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState())
@@ -2245,29 +2623,29 @@ private fun providerServiceUrl(provider: Models.Provider): String? {
                     Text(listOfNotNull(media.year, media.genres.take(2).joinToString(", ").takeIf { it.isNotBlank() }).joinToString("  •  "),
                         color = Muted, fontSize = 14.sp, maxLines = 2, modifier = Modifier.padding(top = 9.dp))
                 }
-                FilledTonalIconButton(onDismiss, colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Raised)) {
+                FilledTonalIconButton(dismiss, colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Raised)) {
                     Icon(painterResource(R.drawable.ic_close), "Chiudi")
                 }
             }
             Spacer(Modifier.height(24.dp))
-            if (state == "hidden") ActionButton("Ripristina nel catalogo", "Mostra nuovamente questo titolo", R.drawable.ic_check, LikeGreen) { store.restore(media); onChanged() }
+            if (state == "hidden") ActionButton("Ripristina nel catalogo", "Mostra nuovamente questo titolo", R.drawable.ic_check, LikeGreen) { store.restore(media); changed() }
             else {
                 if (state == "saved" || state == "progress" || state == "watched") {
                     ActionButton(
                         if (entry?.pinned == true) "Rimuovi dai fissati" else "Fissa in cima alla home",
                         if (entry?.pinned == true) "Il titolo non resterà più in cima alla lista" else "Il titolo comparirà in cima alle sezioni della home e della libreria",
                         R.drawable.ic_push_pin, CrimsonSoft
-                    ) { store.togglePinned(media); onChanged() }
+                    ) { store.togglePinned(media); changed() }
                 }
                 if (media.isSeries) {
                     if (state == "watched") {
-                        ActionButton("Cambia voto", "Aggiorna il tuo giudizio sulla serie", R.drawable.ic_thumb_up, LikeGreen) { pendingReactionAction = { liked -> store.setLiked(media, liked); onChanged() } }
-                        ActionButton("Ricomincia dal primo episodio", "Azzera il progresso della serie", R.drawable.ic_play, Color(0xFF62C8D7)) { store.restart(media); onChanged() }
+                        ActionButton("Cambia voto", "Aggiorna il tuo giudizio sulla serie", R.drawable.ic_thumb_up, LikeGreen) { pendingReactionAction = { liked -> store.setLiked(media, liked); changed() } }
+                        ActionButton("Ricomincia dal primo episodio", "Azzera il progresso della serie", R.drawable.ic_play, Color(0xFF62C8D7)) { store.restart(media); changed() }
                     }
                     else {
                         ActionButton(if (state == "progress") "Rimuovi dalla mia lista" else "Aggiungi alla mia lista",
                             if (state == "progress") "Il titolo verrà rimosso dalla tua lista" else "Salvalo per guardarlo più tardi",
-                            if (state == "progress") R.drawable.ic_check else R.drawable.ic_add, CrimsonSoft) { if (state == "progress") store.remove(media) else store.save(media); onChanged() }
+                            if (state == "progress") R.drawable.ic_check else R.drawable.ic_add, CrimsonSoft) { if (state == "progress") store.remove(media) else store.save(media); changed() }
                         entry?.let { current ->
                             ActionButton("Segna S${current.nextSeason} · E${current.nextEpisode} come visto", "Aggiorna il tuo progresso",
                                 R.drawable.ic_check, LikeGreen) {
@@ -2276,8 +2654,8 @@ private fun providerServiceUrl(provider: Models.Provider): String? {
                                     val next = seasons.flatMap { it.episodes }.firstOrNull { it.season == current.nextSeason && it.number == current.nextEpisode }
                                     if (next != null) {
                                         if (next == LibraryStore.flatten(seasons).lastOrNull())
-                                            pendingReactionAction = { liked -> store.markEpisode(media, next, seasons, liked); onChanged() }
-                                        else { store.markEpisode(media, next, seasons, null); onChanged() }
+                                            pendingReactionAction = { liked -> store.markEpisode(media, next, seasons, liked); changed() }
+                                        else { store.markEpisode(media, next, seasons, null); changed() }
                                     }
                                 }
                             }
@@ -2288,7 +2666,7 @@ private fun providerServiceUrl(provider: Models.Provider): String? {
                                 scope.launch {
                                     val seasons = withContext(Dispatchers.IO) { runCatching { api.seasons(media, true) }.getOrDefault(emptyList()) }
                                     store.completeSeries(media, seasons, liked)
-                                    onChanged()
+                                    changed()
                                 }
                             }
                         }
@@ -2296,14 +2674,14 @@ private fun providerServiceUrl(provider: Models.Provider): String? {
                 } else {
                     if (state != "watched") ActionButton(if (state == "saved") "Rimuovi dalla mia lista" else "Aggiungi alla mia lista",
                         if (state == "saved") "Il film verrà rimosso dalla tua lista" else "Salvalo per guardarlo più tardi",
-                        if (state == "saved") R.drawable.ic_check else R.drawable.ic_add, CrimsonSoft) { if (state == "saved") store.remove(media) else store.save(media); onChanged() }
+                        if (state == "saved") R.drawable.ic_check else R.drawable.ic_add, CrimsonSoft) { if (state == "saved") store.remove(media) else store.save(media); changed() }
                     ActionButton(if (state == "watched") "Rimetti nella mia lista" else "Segna come visto",
                         if (state == "watched") "Il film tornerà tra i titoli da vedere" else "Completa il film e lascia il tuo voto",
                         R.drawable.ic_check, LikeGreen) {
-                        if (state == "watched") { store.markMovieUnwatched(media); onChanged() }
-                        else pendingReactionAction = { liked -> store.watched(media, liked); onChanged() }
+                        if (state == "watched") { store.markMovieUnwatched(media); changed() }
+                        else pendingReactionAction = { liked -> store.watched(media, liked); changed() }
                     }
-                    if (state == "watched") ActionButton("Cambia voto", "Aggiorna il tuo giudizio sul film", R.drawable.ic_thumb_up, LikeGreen) { pendingReactionAction = { liked -> store.setLiked(media, liked); onChanged() } }
+                    if (state == "watched") ActionButton("Cambia voto", "Aggiorna il tuo giudizio sul film", R.drawable.ic_thumb_up, LikeGreen) { pendingReactionAction = { liked -> store.setLiked(media, liked); changed() } }
                 }
                 ActionButton(if (followed) "Non seguire più" else "Segui le uscite",
                     if (followed) "Non riceverai più notifiche per questo titolo" else if (media.isSeries) "Ricevi una notifica a ogni nuovo episodio" else "Ricevi una notifica all’uscita e all’arrivo in streaming",
@@ -2317,7 +2695,7 @@ private fun providerServiceUrl(provider: Models.Provider): String? {
         onDismissRequest = { confirmHide = false },
         title = { Text("Non ti interessa?") },
         text = { Text("Questo titolo verrà nascosto dal catalogo e dalle proposte.") },
-        confirmButton = { TextButton({ store.hide(media); confirmHide = false; onChanged() }) { Text("Nascondi") } },
+        confirmButton = { TextButton({ store.hide(media); confirmHide = false; changed() }) { Text("Nascondi") } },
         dismissButton = { TextButton({ confirmHide = false }) { Text("Annulla") } }
     )
     if (pendingReactionAction != null) ReactionDialog(media.title,
@@ -2329,10 +2707,10 @@ private fun providerServiceUrl(provider: Models.Provider): String? {
 private fun ActionButton(label: String, subtitle: String, icon: Int, accent: Color,
     destructive: Boolean = false, action: () -> Unit) {
     Surface(onClick = action,
-        color = if (destructive) Color(0xFF621322) else Color(0xFF222126),
+        color = if (destructive) Color(0xFF621322) else Sw.Raised,
         shape = RoundedCornerShape(22.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp,
-            if (destructive) Color(0xFF9B2D43) else Color(0xFF49444C)),
+            if (destructive) Color(0xFF9B2D43) else Sw.Outline),
         modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = accent.copy(alpha = .15f), shape = CircleShape, modifier = Modifier.size(48.dp)) {
@@ -2395,7 +2773,7 @@ private fun ReactionDialog(title: String, onChoice: (Boolean) -> Unit, onDismiss
     }
     Dialog(onDismissRequest = { if (selected == null) onDismiss() }) {
         Surface(color = Panel, shape = RoundedCornerShape(30.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF704453))) {
+            border = androidx.compose.foundation.BorderStroke(1.dp, Sw.Outline)) {
             Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(Modifier.size(58.dp).crimsonGlow(CircleShape, 10.dp), contentAlignment = Alignment.Center) {
                     Icon(painterResource(R.drawable.ic_check), null, tint = Color.White, modifier = Modifier.size(29.dp))
@@ -2496,31 +2874,74 @@ private fun SearchScreen(api: TmdbApi, store: LibraryStore, refresh: Int, onDism
             }
         }
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) { IconButton(closeSearch) { Icon(painterResource(R.drawable.ic_back), "Indietro") }; Text("Cerca", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(start = 8.dp)) }
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 18.dp)) {
-                    listOf("titles" to "Titoli", "actors" to "Attori", "directors" to "Registi").forEachIndexed { index, option ->
-                        SegmentedButton(searchMode == option.first, {
-                            searchJob?.cancel(); loading = false; people = emptyList(); results = emptyList(); searchMode = option.first
-                        }, SegmentedButtonDefaults.itemShape(index, 3)) { Text(option.second) }
+                Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    GlassIconButton(R.drawable.ic_back, "Indietro") { closeSearch() }
+                    Text("Cerca", style = MaterialTheme.typography.headlineLarge, color = Ink, modifier = Modifier.padding(start = 14.dp))
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 18.dp).height(58.dp).glass(RoundedCornerShape(29.dp), .9f).padding(start = 18.dp, end = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(painterResource(R.drawable.ic_search), null, tint = Sw.Accent, modifier = Modifier.size(22.dp))
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 17.sp, fontWeight = FontWeight.Medium),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(Sw.Accent),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { submitSearch() }),
+                        modifier = Modifier.weight(1f).padding(horizontal = 12.dp).focusRequester(focusRequester),
+                        decorationBox = { inner -> Box { if (query.isEmpty()) Text(when (searchMode) { "actors" -> "Nome dell’attore o attrice"; "directors" -> "Nome del regista"; else -> "Titolo · anno facoltativo" }, color = Muted, fontSize = 17.sp); inner() } }
+                    )
+                    AnimatedContent(loading to query.isNotEmpty(), label = "search-trailing") { (busy, filled) ->
+                        when {
+                            busy -> Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(20.dp), color = Sw.Accent, strokeWidth = 2.dp) }
+                            filled -> IconButton({ query = ""; results = emptyList(); people = emptyList() }, Modifier.size(40.dp)) { Icon(painterResource(R.drawable.ic_close), "Cancella", tint = Muted) }
+                            else -> Spacer(Modifier.size(40.dp))
+                        }
                     }
                 }
-                if (searchMode == "titles") SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 10.dp)) {
-                    listOf("all" to "Tutti", "movie" to "Film", "tv" to "Serie TV").forEachIndexed { index, option ->
-                        SegmentedButton(mediaType == option.first, { mediaType = option.first }, SegmentedButtonDefaults.itemShape(index, 3)) { Text(option.second) }
+                SegmentedPills(listOf("Titoli", "Attori", "Registi"), listOf("titles", "actors", "directors").indexOf(searchMode), Modifier.fillMaxWidth().padding(top = 14.dp)) { index ->
+                    searchJob?.cancel(); loading = false; people = emptyList(); results = emptyList(); searchMode = listOf("titles", "actors", "directors")[index]
+                }
+                AnimatedVisibility(searchMode == "titles") {
+                    Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("all" to "Tutti", "movie" to "Film", "tv" to "Serie TV").forEach { (id, label) ->
+                            val active = mediaType == id
+                            Box(
+                                Modifier.clip(CircleShape).background(if (active) Sw.Accent.copy(alpha = .18f) else Sw.Raised)
+                                    .border(1.dp, if (active) Sw.Accent else Color.Transparent, CircleShape)
+                                    .noRippleClickable { mediaType = id }.padding(horizontal = 14.dp, vertical = 7.dp)
+                            ) { Text(label, color = if (active) Sw.Accent else Muted, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                        }
                     }
                 }
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp).focusRequester(focusRequester),
-                    placeholder = { Text(when (searchMode) { "actors" -> "Nome dell’attore o attrice"; "directors" -> "Nome del regista"; else -> "Titolo · anno facoltativo" }) },
-                    leadingIcon = { Icon(painterResource(R.drawable.ic_search), null) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(22.dp),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { submitSearch() })
+                LaunchedEffect(query, searchMode) {
+                    if (query.trim().length >= 3) {
+                        delay(550)
+                        searchJob?.cancel()
+                        val mode = searchMode
+                        val searchQuery = query.trim()
+                        searchJob = scope.launch {
+                            loading = true
+                            if (mode != "titles") people = withContext(Dispatchers.IO) { runCatching { api.searchPeople(searchQuery, mode == "directors").toList() }.getOrDefault(emptyList()) }
+                            else {
+                                val yearMatch = Regex("(?:^|\\s)(\\d{4})$").find(searchQuery)
+                                val year = yearMatch?.groupValues?.get(1)?.toIntOrNull()
+                                val title = yearMatch?.let { searchQuery.removeRange(it.range).trim() } ?: searchQuery
+                                results = withContext(Dispatchers.IO) { runCatching { api.searchTitles(title, year).toList() }.getOrDefault(emptyList()) }
+                            }
+                            loading = false
+                        }
+                    }
+                }
+                if (query.isBlank() && results.isEmpty() && people.isEmpty()) EmptyState(
+                    R.drawable.ic_search,
+                    when (searchMode) { "actors" -> "Cerca un attore"; "directors" -> "Cerca un regista"; else -> "Cosa ti va di vedere?" },
+                    if (searchMode == "titles") "Scrivi un titolo: i risultati arrivano mentre digiti. Aggiungi l’anno per essere più preciso, ad esempio “Dune 2021”." else "Apri la filmografia completa e segui la persona per sapere quando esce un suo nuovo titolo.",
+                    Modifier.padding(top = 12.dp)
                 )
-                if (loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp), color = Crimson)
                 if (searchMode != "titles") {
                     LazyColumn(
                         Modifier.fillMaxSize().padding(top = 14.dp),
@@ -2531,7 +2952,7 @@ private fun SearchScreen(api: TmdbApi, store: LibraryStore, refresh: Int, onDism
                     }
                 } else {
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
+                        columns = GridCells.Adaptive(104.dp),
                         modifier = Modifier.fillMaxSize().padding(top = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -2556,26 +2977,26 @@ private fun SearchPosterCard(media: Models.Media, entry: Models.LibraryEntry?, c
     val clickModifier = if (onLongPress == null) Modifier.noRippleClickable { registerSource(sourceKey); open() }
     else Modifier.noRippleCombinedClickable(onClick = { registerSource(sourceKey); open() }, onLongClick = onLongPress)
     Column(Modifier.fillMaxWidth()) {
-        Surface(modifier = clickModifier, shape = RoundedCornerShape(22.dp), color = Raised) {
-            Box {
-                SharedArtworkSource(media, sourceKey, Modifier.fillMaxWidth().aspectRatio(.68f), RoundedCornerShape(22.dp))
-                PosterStatusBadges(entry?.liked, pinned, entry?.state)
-            }
+        Box(clickModifier.fillMaxWidth()) {
+            SharedArtworkSource(media, sourceKey, Modifier.fillMaxWidth().aspectRatio(.68f), RoundedCornerShape(18.dp))
+            Box(Modifier.matchParentSize().border(1.dp, Color.White.copy(alpha = .07f), RoundedCornerShape(18.dp)))
+            if (media.rating > 0) MetaPill(rating(media.rating), Modifier.align(Alignment.TopStart).padding(7.dp), icon = R.drawable.ic_star, tint = Sw.Amber)
+            PosterStatusBadges(entry?.liked, pinned, entry?.state)
         }
-        Text(media.title, color = Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp, start = 2.dp, end = 2.dp))
-        Text(if (releaseDates) releaseLabel(media) else "${media.year}  ·  ★ ${rating(media.rating)}", color = CrimsonSoft, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp, start = 2.dp))
+        Text(media.title, color = Ink, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp, start = 2.dp, end = 2.dp))
+        Text(if (releaseDates) releaseLabel(media) else "${media.year} · ${if (media.isSeries) "Serie TV" else "Film"}", color = Muted, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp, start = 2.dp))
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ExpandedLibraryScreen(
+private fun LibrarySectionContent(
     section: HomeSection,
     store: LibraryStore,
     refresh: Int,
-    onDismiss: () -> Unit,
     onOpen: (Models.Media) -> Unit,
-    onAction: (Models.Media) -> Unit
+    onAction: (Models.Media) -> Unit,
+    onDiscover: () -> Unit
 ) {
     val subscriptionData = LocalSubscriptionData.current
     val activeSubscriptions = LocalActiveSubscriptions.current.active
@@ -2585,7 +3006,7 @@ private fun ExpandedLibraryScreen(
     var type by remember { mutableStateOf("all") }
     var sort by remember(section) { mutableStateOf(LibrarySort.entries.firstOrNull { it.name == store.librarySort(section.state) } ?: LibrarySort.TITLE) }
     var gridView by remember(section) { mutableStateOf(store.libraryGridView(section.state)) }
-    var viewMenuOpen by remember { mutableStateOf(false) }
+    var sortMenuOpen by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
@@ -2598,10 +3019,6 @@ private fun ExpandedLibraryScreen(
             delay(80)
             onOpen(media)
         }
-    }
-    LaunchedEffect(sort) {
-        listState.scrollToItem(0)
-        gridState.scrollToItem(0)
     }
     val entries = remember(section, refresh) { store.entriesByState(section.state).toList() }
     val visible = remember(entries, query, type, sort, subscriptionFilter, subscriptionData.availability, activeSubscriptions) {
@@ -2619,116 +3036,109 @@ private fun ExpandedLibraryScreen(
         }
         if (section == HomeSection.PROGRESS) continueWatchingOrder(sorted) else sorted.sortedByDescending { it.pinned }
     }
-
-    BackHandler(enabled = true, onBack = onDismiss)
-    Surface(Modifier.fillMaxSize(), color = Night) {
-            Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
-                Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    FilledTonalIconButton(onDismiss, colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-                        Icon(painterResource(R.drawable.ic_back), "Indietro", tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                    }
-                    Column(Modifier.padding(start = 14.dp).weight(1f)) {
-                        Text(section.title, style = MaterialTheme.typography.headlineMedium, color = Ink)
-                        Text("${visible.size} ${if (visible.size == 1) "titolo" else "titoli"}", color = CrimsonSoft, fontWeight = FontWeight.Bold)
-                    }
-                    Box {
-                        IconButton({ viewMenuOpen = true }) { Icon(painterResource(R.drawable.ic_more_vert), "Opzioni di visualizzazione") }
-                        DropdownMenu(expanded = viewMenuOpen, onDismissRequest = { viewMenuOpen = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Visualizzazione elenco") },
-                                onClick = { gridView = false; store.setLibraryGridView(section.state, false); viewMenuOpen = false },
-                                leadingIcon = { Icon(painterResource(R.drawable.ic_list), null) },
-                                trailingIcon = { if (!gridView) Icon(painterResource(R.drawable.ic_check), "Selezionata") }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Visualizzazione griglia") },
-                                onClick = { gridView = true; store.setLibraryGridView(section.state, true); viewMenuOpen = false },
-                                leadingIcon = { Icon(painterResource(R.drawable.ic_grid), null) },
-                                trailingIcon = { if (gridView) Icon(painterResource(R.drawable.ic_check), "Selezionata") }
-                            )
-                        }
-                    }
-                }
-                OutlinedTextField(
+    if (entries.isEmpty()) {
+        Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 120.dp)) {
+            when (section) {
+                HomeSection.PROGRESS -> EmptyState(R.drawable.ic_play, "Nessuna serie in corso", "Quando inizi una serie e segni un episodio come visto, la ritrovi qui pronta a ripartire.", action = "Trova qualcosa da guardare", onAction = onDiscover)
+                HomeSection.SAVED -> EmptyState(R.drawable.ic_add, "La tua lista è vuota", "Salva film e serie che vuoi vedere: li ritrovi qui, filtrabili per abbonamento.", action = "Esplora il catalogo", onAction = onDiscover)
+                HomeSection.WATCHED -> EmptyState(R.drawable.ic_check, "Ancora nessun titolo visto", "Segna film e serie come visti e lascia un voto: i consigli diventeranno più tuoi.")
+            }
+        }
+        return
+    }
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.weight(1f).height(48.dp).glass(CircleShape).padding(start = 16.dp, end = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(painterResource(R.drawable.ic_search), null, tint = Muted, modifier = Modifier.size(19.dp))
+                androidx.compose.foundation.text.BasicTextField(
                     value = query,
                     onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    placeholder = { Text("Cerca nella sezione") },
-                    leadingIcon = { Icon(painterResource(R.drawable.ic_search), null) },
-                    trailingIcon = {
-                        if (query.isNotEmpty()) IconButton({ query = "" }) {
-                            Icon(painterResource(R.drawable.ic_close), "Cancella ricerca")
-                        }
-                    },
                     singleLine = true,
-                    shape = RoundedCornerShape(22.dp)
+                    textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 15.sp),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(Sw.Accent),
+                    modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
+                    decorationBox = { inner -> Box { if (query.isEmpty()) Text("Cerca in ${section.title.lowercase(Locale.ITALY)}", color = Muted, fontSize = 15.sp); inner() } }
                 )
-                if (filterSubscriptions) SubscriptionFilterBar(subscriptionFilter, changeSubscriptionFilter, Modifier.padding(top = 8.dp))
-                if (section == HomeSection.WATCHED) {
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 12.dp)) {
-                        listOf("all" to "Tutto", "movie" to "Film", "tv" to "Serie").forEachIndexed { index, option ->
-                            SegmentedButton(type == option.first, { type = option.first }, SegmentedButtonDefaults.itemShape(index, 3)) { Text(option.second) }
-                        }
-                    }
+                AnimatedVisibility(query.isNotEmpty(), enter = fadeIn() + scaleIn(), exit = fadeOut() + scaleOut()) {
+                    IconButton({ query = "" }, Modifier.size(36.dp)) { Icon(painterResource(R.drawable.ic_close), "Cancella ricerca", tint = Muted, modifier = Modifier.size(18.dp)) }
                 }
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 10.dp).horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp)
-                ) {
+            }
+            Spacer(Modifier.width(8.dp))
+            Box {
+                GlassIconButton(R.drawable.ic_tune, "Ordina", size = 48.dp) { sortMenuOpen = true }
+                DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { sortMenuOpen = false }, shape = RoundedCornerShape(18.dp)) {
+                    Text("ORDINA PER", color = Sw.Accent, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                     LibrarySort.entries.forEach { option ->
-                        FilterChip(sort == option, {
-                            sort = option
-                            store.setLibrarySort(section.state, option.name)
-                            scope.launch {
-                                listState.scrollToItem(0)
-                                gridState.scrollToItem(0)
-                            }
-                        }, { Text(option.label) })
-                    }
-                }
-                if (visible.isEmpty()) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("Nessun titolo corrisponde ai filtri.", color = Muted, fontSize = 16.sp)
-                    }
-                } else if (gridView) {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
-                        state = gridState,
-                        modifier = Modifier.weight(1f).padding(top = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(18.dp),
-                        contentPadding = PaddingValues(bottom = 28.dp)
-                    ) {
-                        gridItems(visible, key = { it.media.id }) { entry ->
-                            SearchPosterCard(entry.media, entry, contentVersion = refresh, onLongPress = { onAction(entry.media) }) { openMedia(entry.media) }
-                        }
-                    }
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize().padding(top = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        contentPadding = PaddingValues(bottom = 28.dp)
-                    ) {
-                        items(visible, key = { it.media.id }) { entry ->
-                            ExpandedLibraryRow(entry, { openMedia(entry.media) }, { onAction(entry.media) }, refresh)
-                        }
+                        DropdownMenuItem(
+                            text = { Text(option.label) },
+                            onClick = {
+                                sort = option
+                                store.setLibrarySort(section.state, option.name)
+                                sortMenuOpen = false
+                                scope.launch { listState.scrollToItem(0); gridState.scrollToItem(0) }
+                            },
+                            trailingIcon = { if (sort == option) Icon(painterResource(R.drawable.ic_check), "Selezionato", tint = Sw.Accent) }
+                        )
                     }
                 }
             }
+            Spacer(Modifier.width(8.dp))
+            GlassIconButton(if (gridView) R.drawable.ic_list else R.drawable.ic_grid, if (gridView) "Visualizzazione elenco" else "Visualizzazione griglia", size = 48.dp) {
+                gridView = !gridView
+                store.setLibraryGridView(section.state, gridView)
+            }
+        }
+        if (section == HomeSection.WATCHED) {
+            SegmentedPills(listOf("Tutto", "Film", "Serie"), listOf("all", "movie", "tv").indexOf(type), Modifier.fillMaxWidth().padding(top = 12.dp), height = 40.dp) {
+                type = listOf("all", "movie", "tv")[it]
+            }
+        }
+        if (filterSubscriptions) SubscriptionFilterBar(subscriptionFilter, changeSubscriptionFilter, Modifier.padding(top = 10.dp))
+        AnimatedContent(gridView, Modifier.weight(1f), transitionSpec = { fadeIn(tween(220)) + scaleIn(tween(260), initialScale = .96f) togetherWith fadeOut(tween(120)) }, label = "library-view") { grid ->
+            if (visible.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Nessun titolo corrisponde ai filtri.", color = Muted, fontSize = 16.sp)
+                }
+            } else if (grid) {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(104.dp),
+                    state = gridState,
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(top = 14.dp, bottom = 132.dp)
+                ) {
+                    gridItems(visible, key = { it.media.id }) { entry ->
+                        SearchPosterCard(entry.media, entry, contentVersion = refresh, onLongPress = { onAction(entry.media) }) { openMedia(entry.media) }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(top = 14.dp, bottom = 132.dp)
+                ) {
+                    items(visible, key = { it.media.id }) { entry ->
+                        ExpandedLibraryRow(entry, { openMedia(entry.media) }, { onAction(entry.media) }, refresh, Modifier.animateItem())
+                    }
+                }
+            }
+        }
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ExpandedLibraryRow(entry: Models.LibraryEntry, open: () -> Unit, actions: () -> Unit, contentVersion: Int = 0) {
+private fun ExpandedLibraryRow(entry: Models.LibraryEntry, open: () -> Unit, actions: () -> Unit, contentVersion: Int = 0, modifier: Modifier = Modifier) {
     val media = entry.media
     val sourceKey = rememberArtworkSourceKey(media)
     val registerSource = LocalRegisterArtworkSource.current
-    Surface(
-        color = Panel,
-        shape = RoundedCornerShape(22.dp),
-        modifier = Modifier.fillMaxWidth().noRippleCombinedClickable(onClick = { registerSource(sourceKey); open() }, onLongClick = actions)
+    Box(
+        modifier.fillMaxWidth().noRippleCombinedClickable(onClick = { registerSource(sourceKey); open() }, onLongClick = actions).glass(RoundedCornerShape(22.dp))
     ) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(76.dp, 110.dp)) {
@@ -2939,15 +3349,20 @@ private fun CatalogExpandedRow(media: Models.Media, entry: Models.LibraryEntry?,
 @Composable
 private fun PersonResult(person: Models.Person, onPersonClick: (Models.Person, Rect?) -> Unit) {
     var bounds by remember(person.id) { mutableStateOf<Rect?>(null) }
-    NoRipple { Surface(onClick = { onPersonClick(person, bounds) }, color = Panel, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth().height(88.dp).onGloballyPositioned { bounds = it.boundsInRoot() }) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            RemoteImage(person.profile, Modifier.size(66.dp).clip(CircleShape), ContentScale.Crop)
-            Text(person.name, color = Ink, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 15.dp).weight(1f))
-            Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = CircleShape, modifier = Modifier.size(36.dp)) {
-                Icon(painterResource(R.drawable.ic_play), null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.padding(10.dp))
-            }
+    Row(
+        Modifier.fillMaxWidth().height(88.dp).onGloballyPositioned { bounds = it.boundsInRoot() }
+            .noRippleClickable { onPersonClick(person, bounds) }.glass(RoundedCornerShape(24.dp)).padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RemoteImage(person.profile, Modifier.size(64.dp).clip(CircleShape).border(2.dp, Brush.linearGradient(listOf(Sw.Red, Sw.Orange)), CircleShape), ContentScale.Crop, fallbackIcon = R.drawable.ic_person)
+        Column(Modifier.padding(horizontal = 15.dp).weight(1f)) {
+            Text(person.name, color = Ink, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(if (person.director) "Regia · filmografia" else "Filmografia completa", color = Muted, fontSize = 12.sp)
         }
-    } }
+        Box(Modifier.size(38.dp).brandGlow(CircleShape, 6.dp), contentAlignment = Alignment.Center) {
+            Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Color.White, modifier = Modifier.size(20.dp))
+        }
+    }
 }
 @Composable
 private fun MediaResult(media: Models.Media, open: () -> Unit) {
@@ -2999,33 +3414,16 @@ private fun PersonCredits(
         val hideShows = store.hideShowCredits()
         credits = withContext(Dispatchers.IO) { runCatching { api.personCredits(person.id, person.director, hideShows).toList() }.getOrDefault(emptyList()) }
     }
-    LaunchedEffect(pageBounds != null, closing) {
-        if (pageBounds != null) {
-            progress.animateTo(if (closing) 0f else 1f, tween(320, easing = FastOutSlowInEasing))
-            if (closing) dismiss()
-        }
+    LaunchedEffect(closing) {
+        progress.animateTo(if (closing) 0f else 1f, tween(if (closing) 420 else 560, easing = Sw.Emphasized))
+        if (closing) dismiss()
     }
     BackHandler(enabled = !closing, onBack = close)
-    Surface(
-        Modifier.fillMaxSize()
-            .onGloballyPositioned { if (pageBounds == null) pageBounds = it.boundsInRoot() }
-            .graphicsLayer {
-                val fraction = progress.value
-                val from = sourceBounds
-                val to = pageBounds
-                if (from != null && to != null && from.width > 0f && from.height > 0f && to.width > 0f && to.height > 0f) {
-                    transformOrigin = TransformOrigin(0f, 0f)
-                    scaleX = from.width / to.width + (1f - from.width / to.width) * fraction
-                    scaleY = from.height / to.height + (1f - from.height / to.height) * fraction
-                    translationX = (from.left - to.left) * (1f - fraction)
-                    translationY = (from.top - to.top) * (1f - fraction)
-                    shape = RoundedCornerShape((22f * (1f - fraction)).dp)
-                    clip = true
-                }
-                alpha = fraction * fraction
-            },
-        color = Night
-    ) {
+    ContainerTransform(
+        progress = { progress.value },
+        source = { sourceBounds },
+        preview = { modifier -> RemoteImage(person.profile, modifier, ContentScale.Crop) }
+    ) { Surface(Modifier.fillMaxSize(), color = Night) {
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
                 Row(Modifier.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     FilledTonalIconButton(close, colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
@@ -3072,7 +3470,7 @@ private fun PersonCredits(
                     }
                 }
             }
-    }
+    } }
 }
 
 @Composable
@@ -3092,10 +3490,10 @@ private fun OnboardingScreen(onImportBackup: () -> Unit, onComplete: () -> Unit)
     }
     Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         BackHandler { if (page > 0) page-- }
-        Surface(Modifier.fillMaxSize(), color = Color(0xFF121113)) {
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF191619), Color(0xFF111113), Color(0xFF191216))))) {
+        Surface(Modifier.fillMaxSize(), color = Sw.Background) {
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF1A1414), Sw.Background, Color(0xFF16110F))))) {
                 Box(Modifier.align(Alignment.BottomStart).offset(x = (-90).dp, y = 95.dp).size(300.dp)
-                    .background(Brush.radialGradient(listOf(Color(0x553F1024), Color.Transparent)), CircleShape))
+                    .background(Brush.radialGradient(listOf(Color(0x55FF3B4E), Color.Transparent)), CircleShape))
                 Column(
                     Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
                         .padding(horizontal = 24.dp).padding(top = 10.dp, bottom = 20.dp),
@@ -3120,7 +3518,7 @@ private fun OnboardingScreen(onImportBackup: () -> Unit, onComplete: () -> Unit)
                         Row(Modifier.padding(top = 20.dp, bottom = 22.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                             pages.indices.forEach { index ->
                                 Box(Modifier.size(if (index == page) 9.dp else 7.dp)
-                                    .background(if (index == page) Color(0xFFEB4D78) else Color(0xFF625C64), CircleShape))
+                                    .background(if (index == page) Sw.Accent else Color(0xFF625C64), CircleShape))
                             }
                         }
                     } else Spacer(Modifier.height(22.dp))
@@ -3164,14 +3562,14 @@ private fun OnboardingScreen(onImportBackup: () -> Unit, onComplete: () -> Unit)
 private fun OnboardingWordmark() {
     Text(buildAnnotatedString {
         withStyle(SpanStyle(color = Color(0xFFF9F5F7))) { append("STREAM") }
-        withStyle(SpanStyle(color = Color(0xFFF2698B))) { append("WISE") }
+        withStyle(SpanStyle(color = Sw.Orange)) { append("WISE") }
     }, fontSize = 29.sp, fontWeight = FontWeight.Black, letterSpacing = 1.1.sp)
 }
 
 @Composable
 private fun OnboardingPoster(image: Int, modifier: Modifier = Modifier) {
     Surface(modifier = modifier.shadow(14.dp, RoundedCornerShape(15.dp)), color = Color(0xFF211D22),
-        shape = RoundedCornerShape(15.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF69404C))) {
+        shape = RoundedCornerShape(15.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Sw.Outline)) {
         androidx.compose.foundation.Image(painterResource(image), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
     }
 }
@@ -3193,7 +3591,7 @@ private fun OnboardingArtwork(page: Int, modifier: Modifier = Modifier) {
                 OnboardingPoster(R.drawable.onboarding_red_planet,
                     Modifier.width(posterWidth).height(posterHeight).graphicsLayer { rotationZ = 2f })
                 Box(Modifier.align(Alignment.Center).offset(y = posterHeight * .52f).width(posterWidth * .75f).height(16.dp)
-                    .background(Brush.radialGradient(listOf(Color(0xAAE12B58), Color.Transparent))))
+                    .background(Brush.radialGradient(listOf(Color(0xAAFF5A45), Color.Transparent))))
             }
             1 -> {
                 OnboardingServiceTile(R.drawable.onboarding_service_netflix, "Netflix", Modifier.align(Alignment.Center).offset(x = (-58 * compactScale).dp, y = (-75 * compactScale).dp).graphicsLayer { rotationZ = -9f; scaleX = compactScale; scaleY = compactScale })
@@ -3215,10 +3613,10 @@ private fun OnboardingArtwork(page: Int, modifier: Modifier = Modifier) {
                 }
             }
             3 -> Column(Modifier.width(minOf(maxWidth * .88f, 330.dp)).heightIn(max = maxHeight).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OnboardingTrackingRow(R.drawable.ic_add, "La mia lista", "Film salvati", Color(0xFFEF5A85))
+                OnboardingTrackingRow(R.drawable.ic_add, "La mia lista", "Film salvati", Sw.Accent)
                 OnboardingTrackingRow(R.drawable.ic_play, "Continua a guardare", "Prossimo episodio", Color(0xFF72D3B0))
                 OnboardingTrackingRow(R.drawable.ic_check, "Già visti", "Film e serie", Color(0xFF76D5C3))
-                OnboardingTrackingRow(R.drawable.ic_thumb_up, "Le tue valutazioni", "Mi piace o non mi piace", Color(0xFFF26388))
+                OnboardingTrackingRow(R.drawable.ic_thumb_up, "Le tue valutazioni", "Mi piace o non mi piace", Sw.Accent)
             }
             4 -> {
                 OnboardingPoster(R.drawable.onboarding_portrait,
@@ -3230,17 +3628,17 @@ private fun OnboardingArtwork(page: Int, modifier: Modifier = Modifier) {
                 OnboardingPoster(R.drawable.onboarding_red_planet,
                     Modifier.width(posterWidth * .66f).height(posterHeight * .77f).offset(x = posterWidth * .65f, y = posterHeight * .16f)
                         .graphicsLayer { rotationZ = 7f })
-                Surface(color = Color(0xF3251C24), shape = RoundedCornerShape(18.dp),
+                Surface(color = Color(0xF31D2029), shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.align(Alignment.Center).offset(y = posterHeight * .34f).shadow(12.dp, RoundedCornerShape(18.dp)),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF865268))) {
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Sw.Accent.copy(alpha = .5f))) {
                     Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(painterResource(R.drawable.ic_sparkles), null, tint = Color(0xFFF36A91), modifier = Modifier.size(22.dp))
+                        Icon(painterResource(R.drawable.ic_sparkles), null, tint = Sw.Accent, modifier = Modifier.size(22.dp))
                         Text("Consigliati per te", color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 8.dp))
                     }
                 }
             }
             5 -> {
-                Box(Modifier.size(minOf(236.dp, maxHeight * .72f)).border(1.dp, Color(0xFF873B58), CircleShape))
+                Box(Modifier.size(minOf(236.dp, maxHeight * .72f)).border(1.dp, Sw.Accent.copy(alpha = .5f), CircleShape))
                 OnboardingOrbitIcon(R.drawable.ic_tv, Modifier.align(Alignment.Center).offset(x = (-105 * compactScale).dp, y = (-64 * compactScale).dp))
                 OnboardingOrbitIcon(R.drawable.ic_movie, Modifier.align(Alignment.Center).offset(x = (88 * compactScale).dp, y = (-105 * compactScale).dp))
                 OnboardingOrbitIcon(R.drawable.ic_sparkles, Modifier.align(Alignment.Center).offset(x = (-82 * compactScale).dp, y = (100 * compactScale).dp))
@@ -3259,7 +3657,7 @@ private fun OnboardingArtwork(page: Int, modifier: Modifier = Modifier) {
                 )
             }
             else -> {
-                Box(Modifier.size(240.dp).background(Brush.radialGradient(listOf(Color(0x663F1024), Color.Transparent)), CircleShape))
+                Box(Modifier.size(240.dp).background(Brush.radialGradient(listOf(Color(0x66FF3B4E), Color.Transparent)), CircleShape))
                 androidx.compose.foundation.Image(
                     painterResource(R.drawable.onboarding_app_logo),
                     contentDescription = "Logo StreamWise",
@@ -3290,7 +3688,7 @@ private fun OnboardingAvailability(label: String, logos: List<Int> = emptyList()
             Text(label, color = Color(0xFFB9ADB6), fontSize = 9.sp, maxLines = 1)
             Row(Modifier.padding(top = 6.dp).height(29.dp), horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                if (cinema) Icon(painterResource(R.drawable.ic_movie), "Cinema", tint = Color(0xFFF2698B), modifier = Modifier.size(26.dp))
+                if (cinema) Icon(painterResource(R.drawable.ic_movie), "Cinema", tint = Sw.Orange, modifier = Modifier.size(26.dp))
                 else logos.forEach { logo ->
                     androidx.compose.foundation.Image(painterResource(logo), null, Modifier.size(29.dp), contentScale = ContentScale.Fit)
                 }
@@ -3319,8 +3717,8 @@ private fun OnboardingTrackingRow(icon: Int, label: String, detail: String, acce
 
 @Composable
 private fun OnboardingOrbitIcon(icon: Int, modifier: Modifier = Modifier) {
-    Surface(color = Color(0xFF2D2029), shape = RoundedCornerShape(18.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF8C3D59)), modifier = modifier.size(54.dp)) {
+    Surface(color = Sw.Raised, shape = RoundedCornerShape(18.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Sw.Accent.copy(alpha = .5f)), modifier = modifier.size(54.dp)) {
         Icon(painterResource(icon), null, tint = Color(0xFFF5D8E3), modifier = Modifier.padding(14.dp))
     }
 }
@@ -3329,11 +3727,11 @@ private fun OnboardingOrbitIcon(icon: Int, modifier: Modifier = Modifier) {
 private fun TourOverlay(onTabChange: (Tab) -> Unit, onComplete: () -> Unit) {
     var step by remember { mutableIntStateOf(0) }
     val tour = listOf(
-        Triple(Tab.HOME, "La Home", "Qui trovi la tua lista, i progressi e i titoli già visti. Il pulsante Consigliami pesca direttamente dai tuoi contenuti."),
-        Triple(Tab.MOVIE, "Film e Top 10", "Scorri la Top 10 e tutte le categorie. Alla fine di ogni riga puoi caricare altri film senza cambiare pagina."),
-        Triple(Tab.TV, "Serie ed episodi", "Nelle serie puoi riprendere dal prossimo episodio, segnare una stagione intera come vista e gestire i progressi."),
-        Triple(Tab.GUIDE, "La Guida TV", "Scegli un giorno e scopri film e serie sul digitale terrestre. Filtra per canale o consulta i programmi in onda adesso, poi apri la scheda del titolo."),
-        Triple(Tab.HOME, "Cerca e salva", "In alto trovi ricerca, suggerimenti e Impostazioni. Da lì puoi esportare un backup JSON o ripristinarlo su un nuovo telefono.")
+        Triple(Tab.HOME, "La Home", "Riprendi le serie da dove eri, guarda cosa è di tendenza e lasciati sorprendere con un consiglio su misura."),
+        Triple(Tab.DISCOVER, "Scopri", "Passa da Film a Serie TV con un tocco, sfoglia i titoli in evidenza e filtra per piattaforma e genere."),
+        Triple(Tab.GUIDE, "La Guida TV", "Scegli un giorno e scopri film e serie sul digitale terrestre. Filtra per canale o consulta i programmi in onda adesso."),
+        Triple(Tab.LIBRARY, "La tua Libreria", "Serie in corso, titoli da vedere, già visti, uscite che segui e il confronto degli abbonamenti, tutto in un posto."),
+        Triple(Tab.HOME, "Cerca e personalizza", "Dalla Home trovi la ricerca e le Impostazioni. Da lì puoi esportare un backup JSON o ripristinarlo su un nuovo telefono.")
     )
     LaunchedEffect(step) { onTabChange(tour[step].first) }
     Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
@@ -3515,117 +3913,189 @@ private fun SettingsScreen(
         }
 }
 
+private fun genreEmoji(id: String): String = when (id) {
+    "action" -> "💥"; "comedy" -> "😂"; "drama" -> "🎭"; "thriller" -> "🔪"
+    "sci-fi" -> "🪐"; "horror" -> "👻"; "documentary" -> "🎥"; else -> "💋"
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun FilterScreen(tab: Tab, api: TmdbApi, store: LibraryStore, onDismiss: () -> Unit, onOpen: (Models.Media) -> Unit, onAction: (Models.Media) -> Unit) {
-    val type = if (tab == Tab.TV) "tv" else "movie"
+private fun FilterScreen(type: String, api: TmdbApi, store: LibraryStore, onDismiss: () -> Unit, onOpen: (Models.Media) -> Unit, onAction: (Models.Media) -> Unit) {
+    var kind by remember { mutableStateOf(type) }
     val platforms = remember { mutableStateListOf<String>() }
     val genres = remember { mutableStateListOf<String>() }
-    var results by remember { mutableStateOf<List<Models.Media>?>(null) }
+    var results by remember { mutableStateOf<List<Models.Media>>(emptyList()) }
     var page by remember { mutableIntStateOf(1) }
     var loading by remember { mutableStateOf(false) }
+    var loadingMore by remember { mutableStateOf(false) }
     var showingResults by remember { mutableStateOf(false) }
-    var platformLogos by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     val scope = rememberCoroutineScope()
-    val availableGenres = remember(type) { TmdbApi.GENRES.toList() }
-    LaunchedEffect(api) {
-        platformLogos = withContext(Dispatchers.IO) { runCatching { api.platformLogos() }.getOrDefault(emptyMap()) }
-    }
+    val availableGenres = remember { TmdbApi.GENRES.toList() }
     suspend fun fetch(nextPage: Int): List<Models.Media> = withContext(Dispatchers.IO) {
         runCatching {
             val providerIds = TmdbApi.PLATFORMS.filter { it.id in platforms }.map { it.providerId }
-            val genreIds = availableGenres.filter { it.id in genres && it.id != "erotic" && it.value(type) > 0 }.map { it.value(type) }
+            val genreIds = availableGenres.filter { it.id in genres && it.id != "erotic" && it.value(kind) > 0 }.map { it.value(kind) }
             val erotic = "erotic" in genres
-            val horrorSeries = type == "tv" && "horror" in genres
-            val regular = if ((!erotic && !horrorSeries) || genreIds.isNotEmpty()) api.discoverFiltered(type, nextPage, genreIds, providerIds, false) else emptyList()
-            val eroticTitles = if (erotic) api.discoverFiltered(type, nextPage, emptyList(), providerIds, true) else emptyList()
+            val horrorSeries = kind == "tv" && "horror" in genres
+            val regular = if ((!erotic && !horrorSeries) || genreIds.isNotEmpty()) api.discoverFiltered(kind, nextPage, genreIds, providerIds, false) else emptyList()
+            val eroticTitles = if (erotic) api.discoverFiltered(kind, nextPage, emptyList(), providerIds, true) else emptyList()
             val horrorTitles = if (horrorSeries) api.horrorSeries(nextPage, providerIds) else emptyList()
             (regular + eroticTitles + horrorTitles).distinctBy { it.id }
         }.getOrDefault(emptyList())
     }
-    BackHandler(enabled = true, onBack = onDismiss)
+    val search: () -> Unit = {
+        if (!loading) scope.launch {
+            loading = true
+            page = 1
+            results = fetch(1)
+            showingResults = true
+            loading = false
+        }
+    }
+    val loadMore: () -> Unit = {
+        if (!loadingMore) scope.launch {
+            loadingMore = true
+            val nextPage = page + 1
+            val more = fetch(nextPage)
+            if (more.isNotEmpty()) { results = (results + more).distinctBy { it.id }; page = nextPage }
+            loadingMore = false
+        }
+    }
+    val selectionLabels = TmdbApi.PLATFORMS.filter { it.id in platforms }.map { it.label } + availableGenres.filter { it.id in genres }.map { "${genreEmoji(it.id)} ${it.label}" }
+    BackHandler(enabled = true) { if (showingResults) showingResults = false else onDismiss() }
     Surface(Modifier.fillMaxSize(), color = Night) {
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF1B191E), Night, Color(0xFF171317))))) {
-            Box(Modifier.align(Alignment.TopEnd).offset(x = 74.dp, y = (-70).dp).size(260.dp)
-                .background(Brush.radialGradient(listOf(Color(0x664D1730), Color.Transparent)), CircleShape))
-            Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-                Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 20.dp, top = 10.dp, bottom = 12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onDismiss, modifier = Modifier.size(48.dp)) {
-                            Icon(painterResource(R.drawable.ic_back), "Indietro", tint = Ink, modifier = Modifier.size(25.dp))
-                        }
-                        Text(if (showingResults) "Risultati" else "Esplora", color = Ink, fontSize = 30.sp,
-                            fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
-                    }
-                    Text(if (showingResults) "${results?.size ?: 0} titoli trovati per i tuoi filtri" else "Scopri nuovi titoli filtrando per piattaforma e genere",
-                        color = Color(0xFFBAB5BD), fontSize = 15.sp, lineHeight = 21.sp, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
-                }
-                if (!showingResults) {
-                    BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
-                        val compact = maxWidth < 390.dp
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            FilterGroupCard(
-                                title = "Piattaforma", subtitle = "Seleziona uno o più servizi", headerIcon = "screen",
-                                options = TmdbApi.PLATFORMS.map { it.id to it.label }, selected = platforms.toSet(),
-                                compact = compact, platform = true, logos = platformLogos, modifier = Modifier.weight(1f)
-                            ) { id -> if (id in platforms) platforms.remove(id) else platforms.add(id) }
-                            FilterGroupCard(
-                                title = "Genere", subtitle = "Seleziona uno o più generi", headerIcon = "genre",
-                                options = availableGenres.map { it.id to it.label }, selected = genres.toSet(),
-                                compact = compact, platform = false, modifier = Modifier.weight(1f)
-                            ) { id -> if (id in genres) genres.remove(id) else genres.add(id) }
-                        }
-                    }
-                    Button(
-                        onClick = {
-                            scope.launch {
-                                loading = true
-                                page = 1
-                                results = fetch(1)
-                                showingResults = true
-                                loading = false
+        Box(Modifier.fillMaxSize()) {
+            Box(Modifier.align(Alignment.TopEnd).offset(x = 90.dp, y = (-80).dp).size(320.dp)
+                .background(Brush.radialGradient(listOf(Sw.Red.copy(alpha = .22f), Color.Transparent)), CircleShape))
+            Box(Modifier.align(Alignment.CenterStart).offset(x = (-120).dp).size(280.dp)
+                .background(Brush.radialGradient(listOf(Sw.Orange.copy(alpha = .1f), Color.Transparent)), CircleShape))
+            AnimatedContent(
+                showingResults,
+                transitionSpec = {
+                    if (targetState) (fadeIn(tween(280, 60)) + androidx.compose.animation.slideInHorizontally(tween(420, easing = Sw.Emphasized)) { it / 4 }) togetherWith
+                        (fadeOut(tween(160)) + androidx.compose.animation.slideOutHorizontally(tween(360, easing = Sw.Emphasized)) { -it / 6 })
+                    else (fadeIn(tween(280, 60)) + androidx.compose.animation.slideInHorizontally(tween(420, easing = Sw.Emphasized)) { -it / 4 }) togetherWith
+                        (fadeOut(tween(160)) + androidx.compose.animation.slideOutHorizontally(tween(360, easing = Sw.Emphasized)) { it / 6 })
+                },
+                label = "explore-step"
+            ) { resultsVisible ->
+                if (!resultsVisible) Column(Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        Modifier.weight(1f).fillMaxWidth(),
+                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp, bottom = 24.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        item {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                GlassIconButton(R.drawable.ic_back, "Indietro") { onDismiss() }
+                                Spacer(Modifier.weight(1f))
+                                AnimatedVisibility(platforms.isNotEmpty() || genres.isNotEmpty(), enter = fadeIn() + scaleIn(), exit = fadeOut() + scaleOut()) {
+                                    Text("Azzera", color = Sw.Accent, fontWeight = FontWeight.Bold, modifier = Modifier.clip(CircleShape).noRippleClickable { platforms.clear(); genres.clear() }.padding(horizontal = 14.dp, vertical = 10.dp))
+                                }
                             }
-                        },
-                        enabled = !loading,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp).height(68.dp)
-                            .crimsonGlow(RoundedCornerShape(34.dp), 14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White, disabledContainerColor = Color.Transparent, disabledContentColor = Color.White),
-                        shape = RoundedCornerShape(34.dp)
-                    ) {
-                        if (loading) CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
-                        else {
-                            Icon(painterResource(R.drawable.ic_search), null, modifier = Modifier.size(25.dp))
-                            Spacer(Modifier.width(12.dp))
-                            Text("Mostra titoli", fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        item {
+                            Column(Modifier.reveal()) {
+                                Text("ESPLORA", color = Sw.Accent, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                                Text("Cosa ti va\ndi vedere?", style = MaterialTheme.typography.displaySmall, color = Ink, modifier = Modifier.padding(top = 4.dp))
+                                Text("Scegli piattaforme e generi: ti mostro solo i titoli che fanno per te.", color = Muted, fontSize = 15.sp, lineHeight = 21.sp, modifier = Modifier.padding(top = 8.dp))
+                            }
+                        }
+                        item {
+                            SegmentedPills(listOf("Film", "Serie TV"), if (kind == "tv") 1 else 0, Modifier.fillMaxWidth().reveal(60)) { kind = if (it == 1) "tv" else "movie" }
+                        }
+                        item { ExploreSectionLabel("Piattaforme", if (platforms.isEmpty()) "Tutte" else "${platforms.size} scelte", Modifier.reveal(100)) }
+                        item {
+                            Column(Modifier.reveal(140), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                TmdbApi.PLATFORMS.chunked(3).forEach { row ->
+                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        row.forEach { platform ->
+                                            PlatformTile(platform, platform.id in platforms, Modifier.weight(1f)) {
+                                                if (platform.id in platforms) platforms.remove(platform.id) else platforms.add(platform.id)
+                                            }
+                                        }
+                                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                                    }
+                                }
+                            }
+                        }
+                        item { ExploreSectionLabel("Generi", if (genres.isEmpty()) "Tutti" else "${genres.size} scelti", Modifier.padding(top = 6.dp).reveal(180)) }
+                        item {
+                            FlowRow(Modifier.fillMaxWidth().reveal(220), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                availableGenres.forEach { genre ->
+                                    GenreChip(genreEmoji(genre.id), genre.label, genre.id in genres) {
+                                        if (genre.id in genres) genres.remove(genre.id) else genres.add(genre.id)
+                                    }
+                                }
+                            }
                         }
                     }
-                } else {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Spacer(Modifier.weight(1f))
-                        TextButton({ showingResults = false; results = null }) { Text("Modifica filtri") }
-                    }
-                    val list = results.orEmpty()
-                    if (list.isEmpty()) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Text("Nessun titolo trovato. Prova altri filtri.", color = Muted)
-                    } else LazyVerticalGrid(
-                        columns = GridCells.Fixed(2), modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
-                        contentPadding = PaddingValues(bottom = 24.dp)
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .background(Brush.verticalGradient(listOf(Color.Transparent, Night.copy(alpha = .96f), Night)))
+                            .navigationBarsPadding()
+                            .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 14.dp)
                     ) {
-                        gridItems(list, key = { it.id }) { media -> SearchPosterCard(media, store.get(media)) { onOpen(media) } }
+                        AnimatedContent(selectionLabels.size, label = "explore-summary") { _ ->
+                            Text(
+                                if (selectionLabels.isEmpty()) "Nessun filtro: ti mostro i titoli più popolari" else selectionLabels.joinToString(" · "),
+                                color = Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                        Button(
+                            onClick = search,
+                            enabled = !loading,
+                            modifier = Modifier.fillMaxWidth().height(60.dp).crimsonGlow(CircleShape, 14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White, disabledContainerColor = Color.Transparent, disabledContentColor = Color.White),
+                            shape = CircleShape
+                        ) {
+                            AnimatedContent(loading, label = "explore-button") { busy ->
+                                if (busy) CircularProgressIndicator(Modifier.size(24.dp), color = Color.White, strokeWidth = 2.5.dp)
+                                else Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(painterResource(R.drawable.ic_sparkles), null, modifier = Modifier.size(22.dp))
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(if (kind == "tv") "Mostra le serie" else "Mostra i film", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                } else Column(Modifier.fillMaxSize().statusBarsPadding()) {
+                    Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        GlassIconButton(R.drawable.ic_back, "Modifica filtri") { showingResults = false }
+                        Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+                            Text("Risultati", style = MaterialTheme.typography.headlineMedium, color = Ink)
+                            AnimatedCount(results.size) { Text("$it ${if (kind == "tv") "serie" else "film"} trovati", color = Muted, fontSize = 13.sp) }
+                        }
+                        GlassIconButton(R.drawable.ic_tune, "Modifica filtri") { showingResults = false }
+                    }
+                    if (selectionLabels.isNotEmpty()) LazyRow(Modifier.padding(top = 14.dp), contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(selectionLabels) { label -> MetaPill(label, background = Sw.Raised) }
+                    }
+                    if (results.isEmpty()) EmptyState(R.drawable.ic_search, "Nessun titolo trovato", "Prova a togliere qualche piattaforma o genere.", action = "Modifica filtri") { showingResults = false }
+                    else LazyVerticalGrid(
+                        columns = GridCells.Adaptive(104.dp), modifier = Modifier.weight(1f).fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp),
+                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 32.dp)
+                    ) {
+                        gridItemsIndexed(results, key = { _, media -> media.id }) { index, media ->
+                            Box(Modifier.reveal(delayMillis = (index % 12) * 40, distance = 24.dp)) {
+                                SearchPosterCard(media, store.get(media), onLongPress = { onAction(media) }) { onOpen(media) }
+                            }
+                        }
                         item(span = { GridItemSpan(maxLineSpan) }) {
-                            OutlinedButton(
-                                onClick = { scope.launch {
-                                    loading = true
-                                    val nextPage = page + 1
-                                    val more = fetch(nextPage)
-                                    if (more.isNotEmpty()) { results = (list + more).distinctBy { it.id }; page = nextPage }
-                                    loading = false
-                                } },
-                                enabled = !loading,
-                                modifier = Modifier.fillMaxWidth().padding(top = 6.dp).height(52.dp),
-                                shape = RoundedCornerShape(18.dp)
-                            ) { if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Crimson) else Text("Mostra altri titoli") }
+                            val interaction = remember { MutableInteractionSource() }
+                            Row(
+                                Modifier.padding(top = 6.dp).fillMaxWidth().height(54.dp).pressScale(interaction, .97f).glass(CircleShape)
+                                    .clickable(interaction, indication = null, enabled = !loadingMore, onClick = loadMore),
+                                horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (loadingMore) CircularProgressIndicator(Modifier.size(22.dp), color = Sw.Accent, strokeWidth = 2.dp)
+                                else {
+                                    Icon(painterResource(R.drawable.ic_add), null, tint = Sw.Accent, modifier = Modifier.size(20.dp))
+                                    Text("Mostra altri titoli", color = Ink, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
+                                }
+                            }
                         }
                     }
                 }
@@ -3635,80 +4105,70 @@ private fun FilterScreen(tab: Tab, api: TmdbApi, store: LibraryStore, onDismiss:
 }
 
 @Composable
-private fun FilterGroupCard(
-    title: String,
-    subtitle: String,
-    headerIcon: String,
-    options: List<Pair<String, String>>,
-    selected: Set<String>,
-    compact: Boolean,
-    platform: Boolean,
-    logos: Map<String, String> = emptyMap(),
-    modifier: Modifier = Modifier,
-    onToggle: (String) -> Unit
-) {
-    Surface(
-        modifier = modifier.height(610.dp), color = Color(0xFF211F24), shape = RoundedCornerShape(25.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF454047))
+private fun ExploreSectionLabel(title: String, detail: String, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.Bottom) {
+        Text(title, color = Ink, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+        AnimatedContent(detail, label = "explore-count", transitionSpec = {
+            (slideInVertically { it } + fadeIn()) togetherWith (androidx.compose.animation.slideOutVertically { -it } + fadeOut())
+        }) { Text(it, color = Sw.Accent, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+    }
+}
+
+@Composable
+private fun PlatformTile(platform: TmdbApi.Platform, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val fill by animateFloatAsState(if (selected) 1f else 0f, tween(260), label = "platform-fill")
+    val logoScale by animateFloatAsState(if (selected) 1.08f else 1f, spring(dampingRatio = .4f, stiffness = 500f), label = "platform-logo")
+    val shape = RoundedCornerShape(24.dp)
+    Box(
+        modifier.aspectRatio(.9f)
+            .pressScale(interaction, .92f)
+            .clip(shape)
+            .background(Sw.Surface)
+            .drawBehind { drawRect(Brush.linearGradient(listOf(Sw.Red.copy(alpha = .28f), Sw.Orange.copy(alpha = .12f))), alpha = fill) }
+            .border(1.5.dp, if (selected) Sw.Brand else androidx.compose.ui.graphics.SolidColor(Color.White.copy(alpha = .08f)), shape)
+            .clickable(interaction, indication = null) { haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove); onClick() }
     ) {
-        Column(Modifier.fillMaxSize().padding(if (compact) 10.dp else 14.dp)) {
-            Surface(color = Color(0xFF562134), shape = CircleShape, modifier = Modifier.size(50.dp)) {
-                Box(contentAlignment = Alignment.Center) {
-                    if (headerIcon == "screen") Icon(painterResource(R.drawable.ic_tv), null, tint = Color.White, modifier = Modifier.size(26.dp))
-                    else Text("🎭", fontSize = 25.sp)
-                }
-            }
-            Text(title, color = Ink, fontSize = if (compact) 19.sp else 21.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 9.dp))
-            Text(subtitle, color = Color(0xFFAAA4AD), fontSize = if (compact) 11.sp else 12.sp, lineHeight = 15.sp,
-                minLines = 2, maxLines = 2, modifier = Modifier.padding(top = 3.dp, bottom = 14.dp))
-            options.forEach { (id, label) ->
-                FilterOption(id, label, id in selected, platform, compact, logos[id]) { onToggle(id) }
-                Spacer(Modifier.height(7.dp))
+        Column(Modifier.fillMaxSize().padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            androidx.compose.foundation.Image(
+                painterResource(advisorPlatformLogo(platform.id)), platform.label,
+                Modifier.size(54.dp).graphicsLayer { scaleX = logoScale; scaleY = logoScale; alpha = .75f + .25f * fill }.clip(RoundedCornerShape(14.dp)), contentScale = ContentScale.Fit
+            )
+            Text(platform.label, color = if (selected) Color.White else Muted, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp))
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            selected, Modifier.align(Alignment.TopEnd).padding(8.dp),
+            enter = scaleIn(spring(dampingRatio = .45f, stiffness = 600f)) + fadeIn(), exit = scaleOut(tween(140)) + fadeOut(tween(140))
+        ) {
+            Box(Modifier.size(24.dp).brandGlow(CircleShape, 6.dp), contentAlignment = Alignment.Center) {
+                Icon(painterResource(R.drawable.ic_check), null, tint = Color.White, modifier = Modifier.size(15.dp))
             }
         }
     }
 }
 
 @Composable
-private fun FilterOption(id: String, label: String, selected: Boolean, platform: Boolean, compact: Boolean, logoUrl: String?, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick, modifier = Modifier.fillMaxWidth().height(48.dp), shape = CircleShape,
-        color = if (selected) Color(0xFF3B2630) else Color(0xFF242227),
-        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) CrimsonSoft else Color(0xFF4A454D))
+private fun GenreChip(emoji: String, label: String, selected: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val fill by animateFloatAsState(if (selected) 1f else 0f, tween(260), label = "genre-fill")
+    Row(
+        Modifier.height(50.dp)
+            .pressScale(interaction, .92f)
+            .clip(CircleShape)
+            .background(Sw.Surface)
+            .drawBehind { drawRect(Sw.Brand, alpha = fill) }
+            .border(1.dp, Color.White.copy(alpha = .08f * (1f - fill)), CircleShape)
+            .clickable(interaction, indication = null) { haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove); onClick() }
+            .padding(start = 7.dp, end = 18.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(Modifier.fillMaxSize().padding(horizontal = if (compact) 8.dp else 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (platform) PlatformMark(id, compact, logoUrl) else Text(when (id) {
-                "action" -> "💥"; "comedy" -> "🙂"; "drama" -> "🎭"; "thriller" -> "🎯"
-                "sci-fi" -> "🪐"; "horror" -> "👻"; "documentary" -> "📄"; else -> "💗"
-            }, fontSize = if (compact) 20.sp else 22.sp, modifier = Modifier.width(if (compact) 27.dp else 31.dp))
-            Text(label, color = Ink, fontSize = if (compact) 10.sp else 11.5.sp, fontWeight = FontWeight.Medium,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 3.dp))
-            Box(Modifier.size(17.dp).border(1.5.dp, if (selected) CrimsonSoft else Color(0xFF747078), RoundedCornerShape(5.dp)), contentAlignment = Alignment.Center) {
-                if (selected) Icon(painterResource(R.drawable.ic_check), null, tint = CrimsonSoft, modifier = Modifier.size(13.dp))
-            }
+        Box(Modifier.size(36.dp).clip(CircleShape).background(Color.White.copy(alpha = .1f + .12f * fill)), contentAlignment = Alignment.Center) {
+            Text(emoji, fontSize = 18.sp)
         }
+        Text(label, color = if (selected) Color.White else Ink, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(start = 9.dp))
     }
-}
-
-@Composable
-private fun PlatformMark(id: String, compact: Boolean, logoUrl: String?) {
-    if (!logoUrl.isNullOrBlank()) {
-        RemoteImage(logoUrl, Modifier.size(if (compact) 28.dp else 32.dp).clip(RoundedCornerShape(6.dp)), ContentScale.Fit)
-        return
-    }
-    val (mark, color) = when (id) {
-        "netflix" -> "N" to Color(0xFFE50914)
-        "prime-video" -> "prime" to Color(0xFF4AB5F5)
-        "apple-tv-plus" -> "tv+" to Color.White
-        "disney-plus" -> "Disney" to Color(0xFFC9D9FF)
-        "paramount-plus" -> "P+" to Color.White
-        else -> "max" to Color.White
-    }
-    Text(mark, color = color, fontSize = when (id) {
-        "netflix" -> 23.sp
-        "prime-video", "disney-plus" -> if (compact) 8.sp else 9.sp
-        else -> if (compact) 12.sp else 13.sp
-    }, fontWeight = FontWeight.Black, maxLines = 1, modifier = Modifier.width(if (compact) 29.dp else 33.dp))
 }
 
 private fun advisorPlatformLogo(id: String): Int = when (id) {
@@ -3727,9 +4187,9 @@ private fun AdvisorTypeChoice(label: String, icon: Int, selected: Boolean,
     Surface(
         onClick = onClick,
         modifier = modifier.height(58.dp).then(if (selected) Modifier.crimsonGlow(shape, 7.dp) else Modifier),
-        color = if (selected) Color.Transparent else Color(0xFF211F24),
+        color = if (selected) Color.Transparent else Sw.Raised,
         shape = shape,
-        border = if (selected) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF49444C))
+        border = if (selected) null else androidx.compose.foundation.BorderStroke(1.dp, Sw.Outline)
     ) {
         Row(Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center) {
@@ -3753,7 +4213,7 @@ private fun AdvisorSheet(api: TmdbApi, store: LibraryStore, libraryOnly: Boolean
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = Color(0xFF17161A),
+        containerColor = Sw.Surface,
         shape = RoundedCornerShape(topStart = 34.dp, topEnd = 34.dp),
         dragHandle = { BottomSheetDefaults.DragHandle(color = Color(0xFF77717A)) }
     ) {
@@ -3771,7 +4231,7 @@ private fun AdvisorSheet(api: TmdbApi, store: LibraryStore, libraryOnly: Boolean
                     Text(if (libraryOnly) "Una proposta casuale dalla tua lista." else "Una proposta casuale dal catalogo, su misura per te.",
                         color = Muted, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 3.dp))
                 }
-                FilledTonalIconButton(onDismiss, colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Raised)) {
+                FilledTonalIconButton({ scope.launch { sheetState.hide() }.invokeOnCompletion { onDismiss() } }, colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = Raised)) {
                     Icon(painterResource(R.drawable.ic_close), "Chiudi")
                 }
             }
@@ -3802,11 +4262,11 @@ private fun AdvisorSheet(api: TmdbApi, store: LibraryStore, libraryOnly: Boolean
                         onClick = { genre = if (selected) null else item },
                         label = { Text(item.label) },
                         colors = FilterChipDefaults.filterChipColors(
-                            containerColor = Color(0xFF211F24), labelColor = Muted,
-                            selectedContainerColor = Color(0xFF68172F), selectedLabelColor = Color.White
+                            containerColor = Sw.Raised, labelColor = Muted,
+                            selectedContainerColor = Color(0xFF4A2219), selectedLabelColor = Color.White
                         ),
                         border = FilterChipDefaults.filterChipBorder(enabled = true, selected = selected,
-                            borderColor = Color(0xFF49444C), selectedBorderColor = CrimsonSoft),
+                            borderColor = Sw.Outline, selectedBorderColor = CrimsonSoft),
                         shape = RoundedCornerShape(18.dp)
                     )
                 }
@@ -3824,9 +4284,9 @@ private fun AdvisorSheet(api: TmdbApi, store: LibraryStore, libraryOnly: Boolean
                     val shape = RoundedCornerShape(18.dp)
                     Surface(
                         onClick = { platform = if (selected) null else item },
-                        color = if (selected) Color.Transparent else Color(0xFF211F24),
+                        color = if (selected) Color.Transparent else Sw.Raised,
                         shape = shape,
-                        border = if (selected) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF49444C)),
+                        border = if (selected) null else androidx.compose.foundation.BorderStroke(1.dp, Sw.Outline),
                         modifier = Modifier.size(68.dp).then(if (selected) Modifier.crimsonGlow(shape, 7.dp) else Modifier)
                     ) {
                         androidx.compose.foundation.Image(
@@ -3847,7 +4307,7 @@ private fun AdvisorSheet(api: TmdbApi, store: LibraryStore, libraryOnly: Boolean
                     val request = AdvisorRequest(type, genre, platform, libraryOnly)
                     val choice = chooseAdvisorTitle(api, store, request)
                     loading = false
-                    if (choice != null) onOpen(choice, request)
+                    if (choice != null) scope.launch { sheetState.hide() }.invokeOnCompletion { onOpen(choice, request) }
                     else error = "Nessun titolo trovato con queste preferenze."
                 }
             }, Modifier.fillMaxWidth().padding(top = 22.dp).height(62.dp)
@@ -3961,7 +4421,7 @@ private fun EpisodesScreen(
                                 onClick = { seasonMenuExpanded = true },
                                 color = Panel,
                                 shape = RoundedCornerShape(24.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF49454D))
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Sw.Outline)
                             ) {
                                 Row(Modifier.padding(horizontal = 17.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text("Stagione ${selectedSeason.number}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -3999,7 +4459,7 @@ private fun EpisodesScreen(
                                 },
                                 color = if (selected) Color.Transparent else Panel,
                                 shape = RoundedCornerShape(24.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) CrimsonSoft else Color(0xFF413D45)),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) CrimsonSoft else Sw.Outline),
                                 modifier = if (selected) Modifier.crimsonGlow(RoundedCornerShape(24.dp), 6.dp) else Modifier
                             ) {
                                 Text(season.name, fontWeight = FontWeight.Bold, fontSize = 13.sp,
@@ -4051,7 +4511,7 @@ private fun EpisodesScreen(
                                     label = "episode-background"
                                 )
                                 val episodeBorder by animateColorAsState(
-                                    if (watched) Crimson.copy(alpha = .55f) else Color(0xFF28252C),
+                                    if (watched) Crimson.copy(alpha = .55f) else Sw.Outline,
                                     animationSpec = tween(340, easing = FastOutSlowInEasing),
                                     label = "episode-border"
                                 )
@@ -4226,39 +4686,81 @@ private fun TvGuideScreen(api: TmdbApi, dateString: String, onDate: (String) -> 
     val channels = remember(dayProgrammes) { dayProgrammes.map { it.channel }.distinct().sortedBy { TvGuideRepository.channelNumber(it) } }
     val visible = dayProgrammes.filter { it.end.isAfter(now) && (type == "all" || it.type == type) && (channel == null || it.channel == channel) && (!liveOnly || it.onAir(now)) }
     val dateFormat = remember { java.time.format.DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ITALIAN) }
-    val toolbarBottom = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + FloatingToolbarHeight
-    Column(modifier.fillMaxSize().padding(top = toolbarBottom, bottom = 98.dp)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Surface(color = Raised, shape = RoundedCornerShape(22.dp), border = androidx.compose.foundation.BorderStroke(1.dp, CrimsonSoft.copy(alpha = .3f))) {
-                Row(Modifier.fillMaxWidth().padding(3.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton({ onDate(date.minusDays(1).toString()) }) { Icon(painterResource(R.drawable.ic_back), "Giorno precedente", tint = CrimsonSoft) }
-                    TextButton({ calendar = true }, Modifier.weight(1f)) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(if (date == today) "Oggi" else if (date == today.plusDays(1)) "Domani" else if (date == today.minusDays(1)) "Ieri" else date.format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ITALIAN)), fontWeight = FontWeight.Bold)
-                            Text(date.format(dateFormat).replaceFirstChar { it.uppercase() }, color = Muted, fontSize = 11.sp, maxLines = 1)
-                        }
+    val days = remember(guide, date, today) { ((guide?.dates?.toList() ?: (-1..6).map { today.plusDays(it.toLong()) }) + date).distinct().sorted() }
+    val dayStrip = rememberLazyListState()
+    LaunchedEffect(days, date) { days.indexOf(date).takeIf { it >= 0 }?.let { dayStrip.animateScrollToItem((it - 1).coerceAtLeast(0)) } }
+    Column(modifier.fillMaxSize().statusBarsPadding().padding(bottom = 96.dp)) {
+        Column(Modifier.fillMaxWidth().padding(top = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.padding(horizontal = 20.dp).reveal(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        PulsingDot(LikeGreen, size = 4.dp)
+                        Text("IN CHIARO · DIGITALE TERRESTRE", color = LikeGreen, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp, modifier = Modifier.padding(start = 4.dp))
                     }
-                    IconButton({ onDate(date.plusDays(1).toString()) }) { Icon(painterResource(R.drawable.ic_chevron_right), "Giorno successivo", tint = CrimsonSoft) }
+                    Text("Guida TV", style = MaterialTheme.typography.displaySmall, color = Ink)
+                }
+                GlassIconButton(R.drawable.ic_calendar, "Scegli il giorno") { calendar = true }
+                Spacer(Modifier.width(10.dp))
+                Box(Modifier.size(44.dp).glass(CircleShape).clip(CircleShape).clickable(enabled = !loading) { reload++ }, contentAlignment = Alignment.Center) {
+                    if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Sw.Accent, strokeWidth = 2.dp)
+                    else Icon(painterResource(R.drawable.ic_refresh), "Aggiorna guida", tint = Ink, modifier = Modifier.size(21.dp))
                 }
             }
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("all" to "Tutti", "movie" to "Film", "tv" to "Serie TV").forEach { (id, label) ->
-                    FilterChip(selected = type == id, onClick = { type = id }, label = { Text(label) })
+            LazyRow(state = dayStrip, contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(days, key = { it.toString() }) { day ->
+                    val active = day == date
+                    val fill by animateFloatAsState(if (active) 1f else 0f, tween(260), label = "guide-day")
+                    val interaction = remember { MutableInteractionSource() }
+                    Column(
+                        Modifier.width(62.dp).height(70.dp)
+                            .pressScale(interaction, .9f)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Sw.Raised)
+                            .drawBehind { drawRect(Sw.Brand, alpha = fill) }
+                            .clickable(interaction, indication = null) { onDate(day.toString()) },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            when (day) { today -> "OGGI"; today.plusDays(1) -> "DOMANI"; today.minusDays(1) -> "IERI"; else -> day.format(java.time.format.DateTimeFormatter.ofPattern("EEE", Locale.ITALIAN)).uppercase(Locale.ITALIAN).take(3) },
+                            color = if (active) Color.White.copy(alpha = .9f) else Muted, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp
+                        )
+                        Text("${day.dayOfMonth}", color = if (active) Color.White else Ink, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                    }
                 }
-                if (date == today) FilterChip(selected = liveOnly, onClick = { liveOnly = !liveOnly }, label = { Text("In onda ora") })
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                TextButton({ channelMenu = true }, Modifier.weight(1f)) {
-                    Icon(painterResource(R.drawable.ic_tv), null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(channel?.let { "${TvGuideRepository.channelNumber(it)} · $it" } ?: "Tutti i canali", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                SegmentedPills(listOf("Tutti", "Film", "Serie"), listOf("all", "movie", "tv").indexOf(type), Modifier.weight(1f), height = 42.dp) { type = listOf("all", "movie", "tv")[it] }
+                if (date == today) {
+                    val interaction = remember { MutableInteractionSource() }
+                    Row(
+                        Modifier.height(42.dp).pressScale(interaction, .92f).clip(CircleShape)
+                            .background(if (liveOnly) LikeGreen.copy(alpha = .22f) else Sw.Raised)
+                            .border(1.dp, if (liveOnly) LikeGreen else Color.White.copy(alpha = .08f), CircleShape)
+                            .clickable(interaction, indication = null) { liveOnly = !liveOnly }
+                            .padding(start = 8.dp, end = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        PulsingDot(LikeGreen, size = 4.dp)
+                        Text("Live", color = if (liveOnly) LikeGreen else Ink, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(start = 3.dp))
+                    }
                 }
-                IconButton({ reload++ }, enabled = !loading) { Icon(painterResource(R.drawable.ic_refresh), "Aggiorna guida", tint = CrimsonSoft) }
-                if (date != today) TextButton({ onDate(today.toString()) }) { Text("Oggi") }
-                Text("${visible.size} titoli", color = Muted, fontSize = 12.sp)
+            }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                val interaction = remember { MutableInteractionSource() }
+                Row(
+                    Modifier.weight(1f).height(40.dp).pressScale(interaction, .96f).glass(CircleShape)
+                        .clickable(interaction, indication = null) { channelMenu = true }.padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(painterResource(R.drawable.ic_tv), null, tint = Sw.Accent, modifier = Modifier.size(18.dp))
+                    Text(channel?.let { "${TvGuideRepository.channelNumber(it)} · $it" } ?: "Tutti i canali", color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp).weight(1f))
+                    Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Muted, modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = 90f })
+                }
+                AnimatedCount(visible.size) { Text("$it titoli", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp)) }
             }
         }
-        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 20.dp))
+        Spacer(Modifier.height(10.dp))
         AnimatedContent(targetState = Triple(dateString, type, "${channel.orEmpty()}-$liveOnly"),
             transitionSpec = { fadeIn(tween(220)) + slideInVertically { it / 18 } togetherWith fadeOut(tween(140)) }, label = "guide-day", modifier = Modifier.weight(1f)) { selection ->
             val chosenDate = java.time.LocalDate.parse(selection.first)
@@ -4330,27 +4832,47 @@ private fun TvGuideScreen(api: TmdbApi, dateString: String, onDate: (String) -> 
 private fun TvGuideProgrammeCard(programme: TvGuideRepository.Programme, date: java.time.LocalDate, now: java.time.Instant, modifier: Modifier, onOpen: (Rect?) -> Unit) {
     var bounds by remember(programme.key()) { mutableStateOf<Rect?>(null) }
     val live = programme.onAir(now)
-    val border by animateColorAsState(if (live) LikeGreen.copy(alpha = .65f) else CrimsonSoft.copy(alpha = .18f), label = "guide-live-border")
-    Surface(onClick = { onOpen(bounds) }, color = Panel, shape = RoundedCornerShape(24.dp), border = androidx.compose.foundation.BorderStroke(1.dp, border), modifier = modifier.fillMaxWidth().onGloballyPositioned { bounds = it.boundsInRoot() }.animateContentSize()) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(86.dp, 116.dp).clip(RoundedCornerShape(17.dp)).background(Raised), contentAlignment = Alignment.Center) {
-                if (programme.image.isNotBlank()) RemoteImage(programme.image, Modifier.fillMaxSize(), ContentScale.Crop, fallbackIcon = if (programme.type == "movie") R.drawable.ic_movie else R.drawable.ic_tv)
-                else Icon(painterResource(if (programme.type == "movie") R.drawable.ic_movie else R.drawable.ic_tv), null, tint = CrimsonSoft, modifier = Modifier.size(34.dp))
-            }
-            Column(Modifier.weight(1f).padding(start = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(programme.channel, color = CrimsonSoft, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                Text(programme.title, color = Ink, fontWeight = FontWeight.ExtraBold, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                val time = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
-                val start = programme.start.atZone(TvGuideRepository.ROME)
-                val end = programme.end.atZone(TvGuideRepository.ROME)
-                Text("${start.format(time)}–${end.format(time)}${if (start.toLocalDate() < date) " · iniziato ieri" else if (end.toLocalDate() > date) " · fino a domani" else ""}", color = Muted, fontSize = 12.sp)
-                Text(if (programme.type == "movie") "Film" else "Serie TV${if (programme.episode.isNotBlank()) " · ${programme.episode}" else ""}", color = Muted, fontSize = 11.sp, maxLines = 1)
+    val time = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+    val start = programme.start.atZone(TvGuideRepository.ROME)
+    val end = programme.end.atZone(TvGuideRepository.ROME)
+    val shape = RoundedCornerShape(24.dp)
+    Row(
+        modifier.fillMaxWidth()
+            .onGloballyPositioned { bounds = it.boundsInRoot() }
+            .noRippleClickable { onOpen(bounds) }
+            .then(if (live) Modifier.clip(shape).background(Brush.linearGradient(listOf(Color(0xFF12291F), Sw.Surface))).border(1.dp, LikeGreen.copy(alpha = .5f), shape) else Modifier.glass(shape))
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.width(52.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(start.format(time), color = if (live) LikeGreen else Ink, fontWeight = FontWeight.Black, fontSize = 17.sp)
+            Box(Modifier.padding(vertical = 4.dp).width(2.dp).height(18.dp).clip(CircleShape).background(if (live) LikeGreen.copy(alpha = .5f) else Sw.Outline))
+            Text(end.format(time), color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Box(Modifier.padding(start = 10.dp).size(76.dp, 104.dp).clip(RoundedCornerShape(16.dp)).background(Raised), contentAlignment = Alignment.Center) {
+            if (programme.image.isNotBlank()) RemoteImage(programme.image, Modifier.fillMaxSize(), ContentScale.Crop, fallbackIcon = if (programme.type == "movie") R.drawable.ic_movie else R.drawable.ic_tv)
+            else Icon(painterResource(if (programme.type == "movie") R.drawable.ic_movie else R.drawable.ic_tv), null, tint = CrimsonSoft, modifier = Modifier.size(32.dp))
+        }
+        Column(Modifier.weight(1f).padding(start = 14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(programme.channel, color = Sw.Accent, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 if (live) {
-                    Text("● In onda ora", color = LikeGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    val total = java.time.Duration.between(programme.start, programme.end).seconds.toFloat().coerceAtLeast(1f)
-                    val progress = (java.time.Duration.between(programme.start, now).seconds / total).coerceIn(0f, 1f)
-                    val animated by animateFloatAsState(progress, tween(500), label = "guide-live-progress")
-                    LinearProgressIndicator(progress = { animated }, color = LikeGreen, trackColor = Raised, modifier = Modifier.fillMaxWidth().height(3.dp))
+                    PulsingDot(LikeGreen, Modifier.padding(start = 6.dp), size = 4.dp)
+                    Text("IN ONDA", color = LikeGreen, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp, modifier = Modifier.padding(start = 2.dp))
+                }
+            }
+            Text(programme.title, color = Ink, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(
+                (if (programme.type == "movie") "Film" else "Serie TV${if (programme.episode.isNotBlank()) " · ${programme.episode}" else ""}") +
+                    if (start.toLocalDate() < date) " · iniziato ieri" else if (end.toLocalDate() > date) " · fino a domani" else "",
+                color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+            )
+            if (live) {
+                val total = java.time.Duration.between(programme.start, programme.end).seconds.toFloat().coerceAtLeast(1f)
+                val progress = (java.time.Duration.between(programme.start, now).seconds / total).coerceIn(0f, 1f)
+                val animated by animateFloatAsState(progress, tween(500), label = "guide-live-progress")
+                Box(Modifier.padding(top = 4.dp).fillMaxWidth().height(4.dp).clip(CircleShape).background(Raised)) {
+                    Box(Modifier.fillMaxHeight().fillMaxWidth(animated).clip(CircleShape).background(Brush.horizontalGradient(listOf(LikeGreen.copy(alpha = .6f), LikeGreen))))
                 }
             }
         }
