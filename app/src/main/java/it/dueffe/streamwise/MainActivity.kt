@@ -2099,12 +2099,16 @@ private fun DetailScreen(
                 item {
                     val backdropUrl = media.backdrop.ifBlank { initial.backdrop }.ifBlank { initial.poster }
                     Box(Modifier.fillMaxWidth().height(520.dp)) {
-                        RemoteImage(backdropUrl, Modifier.fillMaxWidth().height(420.dp).graphicsLayer {
-                            val offset = if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 0f
-                            translationY = offset * .5f
-                            val zoom = 1f + offset / 4000f
-                            scaleX = zoom; scaleY = zoom
-                        }, ContentScale.Crop, animatedPlaceholder = true)
+                        // Parallax: the backdrop drifts at half speed but stays clipped to its own area,
+                        // otherwise it slides behind the (transparent) content below the hero.
+                        Box(Modifier.fillMaxWidth().height(420.dp).clipToBounds()) {
+                            RemoteImage(backdropUrl, Modifier.fillMaxSize().graphicsLayer {
+                                val offset = if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 0f
+                                translationY = offset * .5f
+                                val zoom = 1f + offset / 4000f
+                                scaleX = zoom; scaleY = zoom
+                            }, ContentScale.Crop, animatedPlaceholder = true)
+                        }
                         Box(Modifier.fillMaxWidth().height(422.dp).background(Brush.verticalGradient(0f to Color.Black.copy(alpha = .55f), .3f to Color.Transparent, .68f to Night.copy(alpha = .55f), 1f to Night)))
                         Row(Modifier.align(Alignment.BottomStart).padding(horizontal = 20.dp), verticalAlignment = Alignment.Bottom) {
                             Box(Modifier.width(134.dp).aspectRatio(.68f).shadow(26.dp, RoundedCornerShape(20.dp), ambientColor = Sw.Red, spotColor = Sw.Red)) {
