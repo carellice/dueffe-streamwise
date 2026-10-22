@@ -175,9 +175,11 @@ private fun Modifier.noRippleCombinedClickable(onClick: () -> Unit, onLongClick:
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 private val LocalSharedTransitionScope = staticCompositionLocalOf<SharedTransitionScope?> { null }
-private val LocalSharedMediaId = staticCompositionLocalOf<String?> { null }
-private val LocalHiddenArtworkKeys = staticCompositionLocalOf<Set<String>> { emptySet() }
-private val LocalClosingArtworkKey = staticCompositionLocalOf<String?> { null }
+// Values that change while pages open and close must be dynamic locals: a static one would
+// recompose the whole app (every tab and card) on each change, which stalls the transition.
+private val LocalSharedMediaId = compositionLocalOf<String?> { null }
+private val LocalHiddenArtworkKeys = compositionLocalOf<Set<String>> { emptySet() }
+private val LocalClosingArtworkKey = compositionLocalOf<String?> { null }
 private val LocalRegisterArtworkSource = staticCompositionLocalOf<(String) -> Unit> { {} }
 private val LocalRegisterArtworkBounds = staticCompositionLocalOf<(String, Rect?) -> Unit> { { _, _ -> } }
 private val LocalRegisterArtworkLook = staticCompositionLocalOf<(String, ArtworkLook) -> Unit> { { _, _ -> } }
@@ -440,6 +442,10 @@ private fun StreamWiseApp(
     } }
     val artworkBounds = remember { mutableStateMapOf<String, Rect>() }
     val artworkLooks = remember { mutableMapOf<String, ArtworkLook>() }
+    // Remembered so the static locals below keep the same instance across recompositions.
+    val registerArtworkSource = remember { { key: String -> selectedArtworkKey = key } }
+    val registerArtworkBounds = remember { { key: String, bounds: Rect? -> if (bounds == null) artworkBounds.remove(key) else artworkBounds[key] = bounds; Unit } }
+    val registerArtworkLook = remember { { key: String, look: ArtworkLook -> artworkLooks[key] = look } }
     val api = remember(initialApi) { initialApi }
     val scope = rememberCoroutineScope()
     val subscriptionData = rememberSubscriptionData(api, store, refresh)
@@ -455,14 +461,14 @@ private fun StreamWiseApp(
     SharedTransitionLayout {
         CompositionLocalProvider(
             LocalSubscriptionData provides subscriptionData,
-            LocalActiveSubscriptions provides ActiveSubscriptions(activeSubscriptions) { store.setSubscriptions(it) },
+            LocalActiveSubscriptions provides remember(activeSubscriptions) { ActiveSubscriptions(activeSubscriptions) { store.setSubscriptions(it) } },
             LocalSharedTransitionScope provides this@SharedTransitionLayout,
             LocalSharedMediaId provides selected?.id,
             LocalHiddenArtworkKeys provides (detailPages.mapNotNull { it.artworkKey } + (selectedSaga?.takeIf { !closingSaga }?.let { listOf(sagaArtworkKey(it)) } ?: emptyList())).toSet(),
             LocalClosingArtworkKey provides detailPages.firstOrNull { it.routeId == closingDetailId }?.artworkKey,
-            LocalRegisterArtworkSource provides { selectedArtworkKey = it },
-            LocalRegisterArtworkBounds provides { key, bounds -> if (bounds == null) artworkBounds.remove(key) else artworkBounds[key] = bounds },
-            LocalRegisterArtworkLook provides { key, look -> artworkLooks[key] = look }
+            LocalRegisterArtworkSource provides registerArtworkSource,
+            LocalRegisterArtworkBounds provides registerArtworkBounds,
+            LocalRegisterArtworkLook provides registerArtworkLook
         ) {
             Box(Modifier.fillMaxSize()) {
                 AuroraBackground()
@@ -566,7 +572,8 @@ private fun StreamWiseApp(
                         progress = { progress.value },
                         source = { page.artworkKey?.let(artworkBounds::get) },
                         sourceCornerPx = { look?.cornerPx },
-                        preview = { modifier -> RemoteImage(previewUrl, modifier, ContentScale.Crop) }
+                        preview = { modifier -> RemoteImage(previewUrl, modifier, ContentScale.Crop) },
+                        sourceArt = look?.overlay
                     ) {
                         run {
                             AnimatedContent(
@@ -1619,11 +1626,9 @@ private fun FeaturedCarousel(
     val sourceKey = rememberArtworkSourceKey(media)
     val registerSource = LocalRegisterArtworkSource.current
     val registerBounds = LocalRegisterArtworkBounds.current
-    val transitionScope = LocalSharedTransitionScope.current
     val hiddenArtworkKeys = LocalHiddenArtworkKeys.current
-    val closingArtworkKey = LocalClosingArtworkKey.current
     val kenBurns = rememberInfiniteTransition(label = "ken-burns")
-    val zoom by kenBurns.animateFloat(1f, 1.06f, infiniteRepeatable(tween(16000, easing = LinearEasing), RepeatMode.Reverse), label = "ken-burns-zoom")
+    val zoom = kenBurns.animateFloat(1f, 1.06f, infiniteRepeatable(tween(16000, easing = LinearEasing), RepeatMode.Reverse), label = "ken-burns-zoom")
     val registerLook = LocalRegisterArtworkLook.current
     val density = androidx.compose.ui.platform.LocalDensity.current
     val heroUrl = media.backdrop.ifBlank { media.poster }
@@ -1634,82 +1639,84 @@ private fun FeaturedCarousel(
         scaleX = scale; scaleY = scale
     }.onGloballyPositioned {
         registerBounds(sourceKey, it.boundsInRoot())
-        registerLook(sourceKey, ArtworkLook(heroUrl, with(density) { 30.dp.toPx() }))
+        // The detail page grows out of the whole card (artwork, titles and buttons), so nothing pops in or out.
+        registerLook(sourceKey, ArtworkLook(heroUrl, with(density) { 30.dp.toPx() }, overlay = {
+            HeroCardArt(media, type, saved, zoom = { zoom.value }, pageOffset = { 0f }, onDetails = {}, onToggle = {})
+        }))
     }) {
         AnimatedVisibility(
             visible = sourceKey !in hiddenArtworkKeys,
             enter = EnterTransition.None,
             exit = ExitTransition.None
         ) {
-            val sharedModifier = if (transitionScope != null && sourceKey != closingArtworkKey && sourceKey.startsWith("saga-")) {
-                with(transitionScope) {
-                    Modifier.sharedBounds(
-                        sharedContentState = rememberSharedContentState(sourceKey),
-                        animatedVisibilityScope = this@AnimatedVisibility,
-                        // On return, let the full detail page shrink before revealing the hero underneath.
-                        enter = fadeIn(tween(durationMillis = 100, delayMillis = 220, easing = LinearEasing)),
-                        exit = fadeOut(tween(160)),
-                        boundsTransform = { _, _ -> tween(320, easing = FastOutSlowInEasing) },
-                        resizeMode = SharedTransitionScope.ResizeMode.ScaleToBounds()
-                    )
+            Box(Modifier.fillMaxSize().shadow(18.dp, RoundedCornerShape(30.dp), spotColor = Color.Black).clip(RoundedCornerShape(30.dp)).clickable(remember { MutableInteractionSource() }, indication = null) { registerSource(sourceKey); onOpen(media) }) {
+                HeroCardArt(
+                    media, type, saved, zoom = { zoom.value }, pageOffset = pageOffset,
+                    onDetails = { registerSource(sourceKey); onOpen(media) },
+                    onToggle = { saved = !saved; onToggleList(saved) }
+                )
+            }
+        }
+    }
+}
+
+/** Visual content of a carousel card; also drawn by the page transition so the card morphs as a whole. */
+@Composable
+private fun HeroCardArt(media: Models.Media, type: String, saved: Boolean, zoom: () -> Float, pageOffset: () -> Float, onDetails: () -> Unit, onToggle: () -> Unit) {
+    Box(Modifier.fillMaxSize().clip(RoundedCornerShape(30.dp))) {
+        RemoteImage(media.backdrop.ifBlank { media.poster }, Modifier.fillMaxSize().graphicsLayer {
+            translationX = pageOffset() * size.width * .3f
+            scaleX = zoom()
+            scaleY = zoom()
+        }, ContentScale.Crop)
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .4f to Color.Transparent, .68f to Color.Black.copy(alpha = .55f), 1f to Color.Black.copy(alpha = .94f))))
+        Box(Modifier.fillMaxSize().border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .22f), Color.White.copy(alpha = .03f))), RoundedCornerShape(30.dp)))
+        Column(
+            Modifier.align(Alignment.BottomStart).padding(18.dp).graphicsLayer {
+                val offset = pageOffset()
+                translationX = offset * size.width * .35f
+                alpha = (1f - kotlin.math.abs(offset) * 1.4f).coerceIn(0f, 1f)
+            }
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.clip(CircleShape).background(Sw.Brand).padding(horizontal = 10.dp, vertical = 4.dp)) {
+                    Text("IN EVIDENZA", color = Color.White, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp, fontSize = 10.sp)
                 }
-            } else Modifier
-            Box(sharedModifier.fillMaxSize().shadow(18.dp, RoundedCornerShape(30.dp), spotColor = Color.Black).clip(RoundedCornerShape(30.dp)).clickable(remember { MutableInteractionSource() }, indication = null) { registerSource(sourceKey); onOpen(media) }) {
-                RemoteImage(media.backdrop.ifBlank { media.poster }, Modifier.fillMaxSize().graphicsLayer {
-                    translationX = pageOffset() * size.width * .3f
-                    scaleX = zoom
-                    scaleY = zoom
-                }, ContentScale.Crop)
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .4f to Color.Transparent, .68f to Color.Black.copy(alpha = .55f), 1f to Color.Black.copy(alpha = .94f))))
-                Box(Modifier.fillMaxSize().border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .22f), Color.White.copy(alpha = .03f))), RoundedCornerShape(30.dp)))
-                Column(
-                    Modifier.align(Alignment.BottomStart).padding(18.dp).graphicsLayer {
-                        val offset = pageOffset()
-                        translationX = offset * size.width * .35f
-                        alpha = (1f - kotlin.math.abs(offset) * 1.4f).coerceIn(0f, 1f)
-                    }
+                Text(if (type == "tv") "Serie TV" else "Film", color = Color.White.copy(alpha = .75f), fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(start = 10.dp))
+            }
+            Text(media.title, color = Color.White, style = MaterialTheme.typography.displaySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp))
+            Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (media.rating > 0) MetaPill(rating(media.rating), icon = R.drawable.ic_star, tint = Sw.Amber, background = Color.White.copy(alpha = .12f))
+                MetaPill(media.year, background = Color.White.copy(alpha = .12f))
+                Text(media.genres.take(2).joinToString(" · "), color = Color.White.copy(alpha = .75f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Row(Modifier.padding(top = 18.dp).fillMaxWidth().height(54.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onDetails,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
+                    contentPadding = PaddingValues(horizontal = 10.dp),
+                    shape = CircleShape,
+                    modifier = Modifier.weight(1f).fillMaxHeight().crimsonGlow(CircleShape, 10.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.clip(CircleShape).background(Sw.Brand).padding(horizontal = 10.dp, vertical = 4.dp)) {
-                            Text("IN EVIDENZA", color = Color.White, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp, fontSize = 10.sp)
-                        }
-                        Text(if (type == "tv") "Serie TV" else "Film", color = Color.White.copy(alpha = .75f), fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(start = 10.dp))
-                    }
-                    Text(media.title, color = Color.White, style = MaterialTheme.typography.displaySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp))
-                    Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (media.rating > 0) MetaPill(rating(media.rating), icon = R.drawable.ic_star, tint = Sw.Amber, background = Color.White.copy(alpha = .12f))
-                        MetaPill(media.year, background = Color.White.copy(alpha = .12f))
-                        Text(media.genres.take(2).joinToString(" · "), color = Color.White.copy(alpha = .75f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    Row(Modifier.padding(top = 18.dp).fillMaxWidth().height(54.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(
-                            onClick = { registerSource(sourceKey); onOpen(media) },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
-                            contentPadding = PaddingValues(horizontal = 10.dp),
-                            shape = CircleShape,
-                            modifier = Modifier.weight(1f).fillMaxHeight().crimsonGlow(CircleShape, 10.dp)
-                        ) {
-                            Icon(painterResource(R.drawable.ic_play), null, Modifier.size(20.dp))
+                    Icon(painterResource(R.drawable.ic_play), null, Modifier.size(20.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Text("Scopri di più", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+                Button(
+                    onClick = onToggle,
+                    modifier = Modifier.weight(1f).fillMaxHeight().glass(CircleShape, if (saved) .5f else .7f),
+                    contentPadding = PaddingValues(horizontal = 10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = if (saved) LikeGreen else Color.White),
+                    shape = CircleShape
+                ) {
+                    AnimatedContent(saved, label = "hero-list-action", transitionSpec = {
+                        (fadeIn(tween(200)) + scaleIn(spring(dampingRatio = .5f, stiffness = 500f), initialScale = .6f)) togetherWith fadeOut(tween(100))
+                    }) { isSaved ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(painterResource(if (isSaved) R.drawable.ic_check else R.drawable.ic_add), null, Modifier.size(20.dp))
                             Spacer(Modifier.width(7.dp))
-                            Text("Scopri di più", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        }
-                        Button(
-                            onClick = { saved = !saved; onToggleList(saved) },
-                            modifier = Modifier.weight(1f).fillMaxHeight().glass(CircleShape, if (saved) .5f else .7f),
-                            contentPadding = PaddingValues(horizontal = 10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = if (saved) LikeGreen else Color.White),
-                            shape = CircleShape
-                        ) {
-                            AnimatedContent(saved, label = "hero-list-action", transitionSpec = {
-                                (fadeIn(tween(200)) + scaleIn(spring(dampingRatio = .5f, stiffness = 500f), initialScale = .6f)) togetherWith fadeOut(tween(100))
-                            }) { isSaved ->
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(painterResource(if (isSaved) R.drawable.ic_check else R.drawable.ic_add), null, Modifier.size(20.dp))
-                                    Spacer(Modifier.width(7.dp))
-                                    Text(if (isSaved) "In lista" else "La mia lista", fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                            }
+                            Text(if (isSaved) "In lista" else "La mia lista", fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
@@ -2421,11 +2428,11 @@ private fun DetailScreen(
                 var bounds by remember(person.id) { mutableStateOf<Rect?>(null) }
                 Column(
                     Modifier.width(84.dp).height(120.dp)
-                        .onGloballyPositioned { bounds = it.boundsInRoot() }
                         .noRippleCombinedClickable(onClick = { onPersonClick(person, bounds) }, onLongClick = {}),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    RemoteImage(person.profile, Modifier.size(76.dp).clip(CircleShape).border(2.dp, Brush.linearGradient(listOf(Sw.Red, Sw.Coral)), CircleShape), ContentScale.Crop, fallbackIcon = R.drawable.ic_person)
+                    // The person page grows out of this circle, not the whole photo-and-name block.
+                    RemoteImage(person.profile, Modifier.size(76.dp).onGloballyPositioned { bounds = it.boundsInRoot() }.clip(CircleShape).border(2.dp, Brush.linearGradient(listOf(Sw.Red, Sw.Coral)), CircleShape), ContentScale.Crop, fallbackIcon = R.drawable.ic_person)
                     Text(person.name, color = Ink, fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp).height(38.dp))
                 }
             }
@@ -3379,11 +3386,11 @@ private fun CatalogExpandedRow(media: Models.Media, entry: Models.LibraryEntry?,
 private fun PersonResult(person: Models.Person, onPersonClick: (Models.Person, Rect?) -> Unit) {
     var bounds by remember(person.id) { mutableStateOf<Rect?>(null) }
     Row(
-        Modifier.fillMaxWidth().height(88.dp).onGloballyPositioned { bounds = it.boundsInRoot() }
+        Modifier.fillMaxWidth().height(88.dp)
             .noRippleClickable { onPersonClick(person, bounds) }.glass(RoundedCornerShape(24.dp)).padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        RemoteImage(person.profile, Modifier.size(64.dp).clip(CircleShape).border(2.dp, Brush.linearGradient(listOf(Sw.Red, Sw.Coral)), CircleShape), ContentScale.Crop, fallbackIcon = R.drawable.ic_person)
+        RemoteImage(person.profile, Modifier.size(64.dp).onGloballyPositioned { bounds = it.boundsInRoot() }.clip(CircleShape).border(2.dp, Brush.linearGradient(listOf(Sw.Red, Sw.Coral)), CircleShape), ContentScale.Crop, fallbackIcon = R.drawable.ic_person)
         Column(Modifier.padding(horizontal = 15.dp).weight(1f)) {
             Text(person.name, color = Ink, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(if (person.director) "Regia · filmografia" else "Filmografia completa", color = Muted, fontSize = 12.sp)
@@ -3449,12 +3456,19 @@ private fun PersonCredits(
         if (closing) dismiss()
     }
     BackHandler(enabled = !closing, onBack = close)
-    val avatarCorner = with(androidx.compose.ui.platform.LocalDensity.current) { 26.dp.toPx() }
     ContainerTransform(
         progress = { progress.value },
         source = { sourceBounds },
-        sourceCornerPx = { avatarCorner },
-        preview = { modifier -> RemoteImage(person.profile, modifier, ContentScale.Crop) }
+        // Sources are the circular photos, so the page starts as that circle.
+        sourceCornerPx = { sourceBounds?.let { minOf(it.width, it.height) / 2f } },
+        preview = { modifier ->
+            Box(modifier) {
+                RemoteImage(person.profile, Modifier.fillMaxSize(), ContentScale.Crop, fallbackIcon = R.drawable.ic_person)
+                // The photo's gradient ring, visible only while the page is still (almost) the circle.
+                Box(Modifier.matchParentSize().graphicsLayer { alpha = (1f - progress.value * 6f).coerceIn(0f, 1f) }
+                    .border(2.dp, Brush.linearGradient(listOf(Sw.Red, Sw.Coral)), CircleShape))
+            }
+        }
     ) { Surface(Modifier.fillMaxSize(), color = Night) {
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
                 Row(Modifier.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {

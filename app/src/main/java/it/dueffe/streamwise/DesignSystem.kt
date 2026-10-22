@@ -363,7 +363,7 @@ internal fun PulsingDot(color: Color, modifier: Modifier = Modifier, size: Dp = 
 private fun transformContentAlpha(progress: Float) = ((progress - .28f) / .5f).coerceIn(0f, 1f)
 
 /** What a tapped artwork looks like on screen, so a page can grow out of exactly that image. */
-internal data class ArtworkLook(val url: String, val cornerPx: Float)
+internal data class ArtworkLook(val url: String, val cornerPx: Float, val overlay: (@Composable () -> Unit)? = null)
 
 /** Waits until a freshly added page has been composed, so the motion never starts on a heavy frame. */
 internal suspend fun awaitTransformReady() {
@@ -382,6 +382,7 @@ internal fun ContainerTransform(
     source: () -> Rect?,
     sourceCornerPx: () -> Float? = { null },
     preview: (@Composable (Modifier) -> Unit)? = null,
+    sourceArt: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     var origin by remember { mutableStateOf(Offset.Zero) }
@@ -413,7 +414,29 @@ internal fun ContainerTransform(
             if (visibleSource() == null) alpha = p.coerceIn(0f, 1f)
         }) {
             Box(Modifier.fillMaxSize().background(Sw.Surface))
-            preview?.invoke(
+            // A composed source (e.g. a carousel card with its titles) is drawn at its original size and
+            // scaled uniformly to cover the moving clip, so it zooms through instead of reflowing.
+            if (sourceArt != null) Box(Modifier.layout { measurable, constraints ->
+                val src = visibleSource()
+                if (src == null) return@layout layout(0, 0) {}
+                val placeable = measurable.measure(Constraints.fixed(src.width.roundToInt().coerceAtLeast(1), src.height.roundToInt().coerceAtLeast(1)))
+                val width = constraints.maxWidth.toFloat()
+                val height = constraints.maxHeight.toFloat()
+                layout(constraints.maxWidth, constraints.maxHeight) {
+                    placeable.placeWithLayer(0, 0) {
+                        val p = progress()
+                        val rect = rectFor(width, height, p)
+                        val scale = maxOf(rect.width / src.width, rect.height / src.height)
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                        scaleX = scale
+                        scaleY = scale
+                        translationX = rect.center.x - src.width * scale / 2f
+                        translationY = rect.center.y - src.height * scale / 2f
+                        alpha = 1f - transformContentAlpha(p)
+                    }
+                }
+            }) { sourceArt() }
+            else preview?.invoke(
                 Modifier
                     .layout { measurable, constraints ->
                         val rect = rectFor(constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat(), progress())
