@@ -63,7 +63,7 @@ import kotlin.math.roundToInt
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** Design tokens taken from the StreamWise logo: slate surfaces with a red → orange "ember" accent. */
+/** Design tokens: slate surfaces with a deep cinema-red accent gradient. */
 internal object Sw {
     val Background = Color(0xFF0A0B10)
     val Surface = Color(0xFF14161E)
@@ -71,18 +71,18 @@ internal object Sw {
     val Outline = Color(0xFF2C303C)
     val Ink = Color(0xFFF7F5F3)
     val Muted = Color(0xFFA4A8B5)
-    val Red = Color(0xFFFF3B4E)
-    val Orange = Color(0xFFFF8A3D)
-    val Accent = Color(0xFFFF7A59)
+    val Red = Color(0xFFD7142B)
+    val Coral = Color(0xFFFF4B45)
+    val Accent = Color(0xFFFF5964)
     val Amber = Color(0xFFFFC24D)
     val Blue = Color(0xFF4C8DFF)
-    val Brand = Brush.linearGradient(listOf(Red, Orange))
+    val Brand = Brush.linearGradient(listOf(Red, Coral))
     val Emphasized = CubicBezierEasing(.2f, 0f, 0f, 1f)
     val Decelerate = CubicBezierEasing(.05f, .7f, .1f, 1f)
 }
 
 internal fun Modifier.brandGlow(shape: Shape, elevation: Dp = 10.dp): Modifier =
-    shadow(elevation, shape, ambientColor = Sw.Red.copy(alpha = .6f), spotColor = Sw.Orange.copy(alpha = .7f))
+    shadow(elevation, shape, ambientColor = Sw.Red.copy(alpha = .6f), spotColor = Sw.Coral.copy(alpha = .7f))
         .background(Sw.Brand, shape)
         .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .32f), Color.White.copy(alpha = .04f))), shape)
 
@@ -133,7 +133,7 @@ internal fun AuroraBackground(modifier: Modifier = Modifier) {
         val first = Offset(w * (.05f + .45f * phase), h * (.02f + .08f * phase))
         drawCircle(Brush.radialGradient(listOf(Sw.Red.copy(alpha = .22f), Color.Transparent), first, w * .85f), w * .85f, first)
         val second = Offset(w * (.95f - .35f * phase), h * (.18f + .12f * phase))
-        drawCircle(Brush.radialGradient(listOf(Sw.Orange.copy(alpha = .14f), Color.Transparent), second, w * .7f), w * .7f, second)
+        drawCircle(Brush.radialGradient(listOf(Sw.Coral.copy(alpha = .14f), Color.Transparent), second, w * .7f), w * .7f, second)
         val third = Offset(w * (.2f + .5f * phase), h * (.85f - .1f * phase))
         drawCircle(Brush.radialGradient(listOf(Sw.Blue.copy(alpha = .08f), Color.Transparent), third, w * .9f), w * .9f, third)
     }
@@ -318,15 +318,19 @@ internal fun SectionHeader(title: String, modifier: Modifier = Modifier, eyebrow
         if (onAction != null) {
             val interaction = remember { MutableInteractionSource() }
             Row(
-                Modifier.onGloballyPositioned { bounds = it.boundsInRoot() }
+                Modifier.padding(start = 8.dp, end = 8.dp, bottom = 2.dp)
+                    .onGloballyPositioned { bounds = it.boundsInRoot() }
                     .pressScale(interaction, .9f)
+                    .height(34.dp)
                     .clip(CircleShape)
+                    .background(Sw.Accent.copy(alpha = .12f))
+                    .border(1.dp, Sw.Accent.copy(alpha = .35f), CircleShape)
                     .clickable(interaction, indication = null) { onAction(bounds) }
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(start = 13.dp, end = 7.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(action ?: "Vedi tutto", color = Sw.Accent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Sw.Accent, modifier = Modifier.size(18.dp))
+                Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Sw.Accent, modifier = Modifier.padding(start = 2.dp).size(17.dp))
             }
         }
     }
@@ -358,23 +362,39 @@ internal fun PulsingDot(color: Color, modifier: Modifier = Modifier, size: Dp = 
 
 private fun transformContentAlpha(progress: Float) = ((progress - .28f) / .5f).coerceIn(0f, 1f)
 
+/** What a tapped artwork looks like on screen, so a page can grow out of exactly that image. */
+internal data class ArtworkLook(val url: String, val cornerPx: Float)
+
+/** Waits until a freshly added page has been composed, so the motion never starts on a heavy frame. */
+internal suspend fun awaitTransformReady() {
+    repeat(2) { withFrameNanos { } }
+}
+
 /**
  * Container transform: the page is revealed by a rounded clip that grows out of the tapped element,
- * so its content is never stretched. [preview] (usually the tapped artwork) fills the moving clip
- * and cross-fades into the page; the backdrop dims underneath. Progress runs 0 (source) → 1 (full page).
+ * so its content is never stretched. [preview] (the tapped artwork) fills the moving clip and
+ * cross-fades into the page while the backdrop dims. Progress runs 0 (source) → 1 (full page).
+ * Without a visible source the page simply fades and settles in place, with no preview.
  */
 @Composable
 internal fun ContainerTransform(
     progress: () -> Float,
     source: () -> Rect?,
+    sourceCornerPx: () -> Float? = { null },
     preview: (@Composable (Modifier) -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     var origin by remember { mutableStateOf(Offset.Zero) }
-    val corner = with(androidx.compose.ui.platform.LocalDensity.current) { 26.dp.toPx() }
+    var area by remember { mutableStateOf(androidx.compose.ui.geometry.Size.Zero) }
+    var contentReady by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { withFrameNanos { }; contentReady = true }
+    val defaultCorner = with(androidx.compose.ui.platform.LocalDensity.current) { 24.dp.toPx() }
+    fun visibleSource(): Rect? =
+        source()?.translate(-origin.x, -origin.y)
+            // Before the first layout the area is unknown: trust the source rather than flash a fallback.
+            ?.takeIf { it.width > 1f && it.height > 1f && (area == androidx.compose.ui.geometry.Size.Zero || (it.bottom > 0f && it.top < area.height && it.right > 0f && it.left < area.width)) }
     fun rectFor(width: Float, height: Float, p: Float): Rect {
-        val from = source()?.translate(-origin.x, -origin.y)?.takeIf { it.width > 1f && it.height > 1f }
-            ?: Rect(width * .1f, height * .14f, width * .9f, height * .86f)
+        val from = visibleSource() ?: return Rect(0f, 0f, width, height)
         return Rect(
             from.left + (0f - from.left) * p,
             from.top + (0f - from.top) * p,
@@ -382,14 +402,15 @@ internal fun ContainerTransform(
             from.bottom + (height - from.bottom) * p
         )
     }
-    Box(Modifier.fillMaxSize().onGloballyPositioned { origin = it.positionInRoot() }.pointerInput(Unit) {}) {
+    Box(Modifier.fillMaxSize().onGloballyPositioned { origin = it.positionInRoot(); area = androidx.compose.ui.geometry.Size(it.size.width.toFloat(), it.size.height.toFloat()) }.pointerInput(Unit) {}) {
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = progress().coerceIn(0f, 1f) * .7f }.background(Color.Black))
         Box(Modifier.fillMaxSize().graphicsLayer {
             val p = progress()
             val rect = rectFor(size.width, size.height, p)
-            val radius = corner * (1f - p)
+            val radius = (sourceCornerPx() ?: defaultCorner) * (1f - p)
             shape = GenericShape { _, _ -> addRoundRect(RoundRect(rect, CornerRadius(radius))) }
             clip = true
+            if (visibleSource() == null) alpha = p.coerceIn(0f, 1f)
         }) {
             Box(Modifier.fillMaxSize().background(Sw.Surface))
             preview?.invoke(
@@ -399,7 +420,9 @@ internal fun ContainerTransform(
                         val placeable = measurable.measure(Constraints.fixed(rect.width.roundToInt().coerceAtLeast(1), rect.height.roundToInt().coerceAtLeast(1)))
                         layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(rect.left.roundToInt(), rect.top.roundToInt()) }
                     }
-                    .graphicsLayer { alpha = 1f - transformContentAlpha(progress()) }
+                    .graphicsLayer {
+                        alpha = if (visibleSource() == null) 0f else 1f - transformContentAlpha(progress())
+                    }
             )
             Box(Modifier.fillMaxSize().graphicsLayer {
                 val p = progress()
@@ -408,7 +431,7 @@ internal fun ContainerTransform(
                 scaleX = scale
                 scaleY = scale
                 translationY = (1f - p) * 40.dp.toPx()
-            }) { content() }
+            }) { if (contentReady) content() }
         }
     }
 }

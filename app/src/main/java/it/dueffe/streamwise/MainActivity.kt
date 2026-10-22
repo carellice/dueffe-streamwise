@@ -16,6 +16,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.animateColorAsState
@@ -177,7 +179,8 @@ private val LocalSharedMediaId = staticCompositionLocalOf<String?> { null }
 private val LocalHiddenArtworkKeys = staticCompositionLocalOf<Set<String>> { emptySet() }
 private val LocalClosingArtworkKey = staticCompositionLocalOf<String?> { null }
 private val LocalRegisterArtworkSource = staticCompositionLocalOf<(String) -> Unit> { {} }
-private val LocalRegisterArtworkBounds = staticCompositionLocalOf<(String, Rect) -> Unit> { { _, _ -> } }
+private val LocalRegisterArtworkBounds = staticCompositionLocalOf<(String, Rect?) -> Unit> { { _, _ -> } }
+private val LocalRegisterArtworkLook = staticCompositionLocalOf<(String, ArtworkLook) -> Unit> { { _, _ -> } }
 private val LocalDetailVisibilityScope = staticCompositionLocalOf<AnimatedVisibilityScope?> { null }
 
 private enum class Tab(val label: String, val icon: Int) {
@@ -280,13 +283,13 @@ class MainActivity : ComponentActivity() {
 private fun StreamWiseTheme(content: @Composable () -> Unit) {
     val dark = true
     val scheme = if (dark) darkColorScheme(
-        primary = Color(0xFFFF5A45),
+        primary = Color(0xFFE5243A),
         onPrimary = Color.White,
-        primaryContainer = Color(0xFF3B1C18),
+        primaryContainer = Color(0xFF3B161B),
         onPrimaryContainer = Color(0xFFFFDAD2),
         secondary = SoftCrimson,
         onSecondary = Color(0xFF3A0E06),
-        secondaryContainer = Color(0xFF33201C),
+        secondaryContainer = Color(0xFF331D20),
         onSecondaryContainer = Color(0xFFFFDAD2),
         tertiary = Sw.Amber,
         onTertiary = Color(0xFF3A2600),
@@ -436,6 +439,7 @@ private fun StreamWiseApp(
         selectedArtworkKey = null; detailPages = listOf(DetailPage(media, null)); closingDetailId = null; selected = media
     } }
     val artworkBounds = remember { mutableStateMapOf<String, Rect>() }
+    val artworkLooks = remember { mutableMapOf<String, ArtworkLook>() }
     val api = remember(initialApi) { initialApi }
     val scope = rememberCoroutineScope()
     val subscriptionData = rememberSubscriptionData(api, store, refresh)
@@ -457,7 +461,8 @@ private fun StreamWiseApp(
             LocalHiddenArtworkKeys provides (detailPages.mapNotNull { it.artworkKey } + (selectedSaga?.takeIf { !closingSaga }?.let { listOf(sagaArtworkKey(it)) } ?: emptyList())).toSet(),
             LocalClosingArtworkKey provides detailPages.firstOrNull { it.routeId == closingDetailId }?.artworkKey,
             LocalRegisterArtworkSource provides { selectedArtworkKey = it },
-            LocalRegisterArtworkBounds provides { key, bounds -> artworkBounds[key] = bounds }
+            LocalRegisterArtworkBounds provides { key, bounds -> if (bounds == null) artworkBounds.remove(key) else artworkBounds[key] = bounds },
+            LocalRegisterArtworkLook provides { key, look -> artworkLooks[key] = look }
         ) {
             Box(Modifier.fillMaxSize()) {
                 AuroraBackground()
@@ -489,7 +494,7 @@ private fun StreamWiseApp(
                             onChanged = { refresh++ },
                             onExpandedChange = { catalogExpanded = it }
                         )
-                        Tab.GUIDE -> key(guideRequest) { TvGuideScreen(api, guideDate, { guideDate = it }, Modifier, backEnabled = detailPages.isEmpty(), onOpen = { selectedArtworkKey = null; openFromCatalog(it) }, onExpandedChange = { catalogExpanded = it }) }
+                        Tab.GUIDE -> key(guideRequest) { TvGuideScreen(api, guideDate, { guideDate = it }, Modifier, backEnabled = detailPages.isEmpty(), onOpen = openFromCatalog, onExpandedChange = { catalogExpanded = it }) }
                         Tab.LIBRARY -> LibraryScreen(
                             librarySection, { librarySection = it }, api, store, refresh,
                             onOpen = openFromCatalog,
@@ -541,25 +546,26 @@ private fun StreamWiseApp(
                 key(page.routeId) {
                     val closingThisPage = closingDetailId == page.routeId
                     val progress = remember(page.routeId) { Animatable(0f) }
-                    LaunchedEffect(page.routeId) { progress.animateTo(1f, tween(580, easing = Sw.Emphasized)) }
+                    LaunchedEffect(page.routeId) {
+                        awaitTransformReady()
+                        progress.animateTo(1f, tween(560, easing = Sw.Emphasized))
+                    }
                     LaunchedEffect(closingThisPage) {
                         if (closingThisPage) {
-                            progress.animateTo(0f, tween(440, easing = Sw.Emphasized))
+                            progress.animateTo(0f, tween(480, easing = FastOutSlowInEasing))
                             val remaining = detailPages.filterNot { it.routeId == page.routeId }
                             detailPages = remaining
                             selectedArtworkKey = remaining.lastOrNull()?.artworkKey
                             closingDetailId = null
                         }
                     }
-                    // Landscape sources (hero, continue watching) grow from their backdrop, posters from the poster.
-                    val previewUrl = remember(page.routeId, page.media.id) {
-                        val bounds = page.artworkKey?.let(artworkBounds::get)
-                        if (bounds != null && bounds.width > bounds.height) page.media.backdrop.ifBlank { page.media.poster }
-                        else page.media.poster.ifBlank { page.media.backdrop }
-                    }
+                    // The page grows out of exactly the image the tapped element was showing (poster or backdrop).
+                    val look = remember(page.routeId, page.artworkKey) { page.artworkKey?.let(artworkLooks::get) }
+                    val previewUrl = look?.url ?: page.media.poster.ifBlank { page.media.backdrop }
                     ContainerTransform(
                         progress = { progress.value },
                         source = { page.artworkKey?.let(artworkBounds::get) },
+                        sourceCornerPx = { look?.cornerPx },
                         preview = { modifier -> RemoteImage(previewUrl, modifier, ContentScale.Crop) }
                     ) {
                         run {
@@ -631,9 +637,12 @@ private fun ExpandingPage(
     val close = { if (!closing) closing = true }
     LaunchedEffect(closing) {
         if (closing) {
-            progress.animateTo(0f, tween(420, easing = Sw.Emphasized))
+            progress.animateTo(0f, tween(460, easing = FastOutSlowInEasing))
             onClosed()
-        } else progress.animateTo(1f, tween(560, easing = Sw.Emphasized))
+        } else {
+            awaitTransformReady()
+            progress.animateTo(1f, tween(540, easing = Sw.Emphasized))
+        }
     }
     ContainerTransform(progress = { progress.value }, source = { sourceBounds }) { content(close) }
 }
@@ -1614,16 +1623,23 @@ private fun FeaturedCarousel(
     val hiddenArtworkKeys = LocalHiddenArtworkKeys.current
     val closingArtworkKey = LocalClosingArtworkKey.current
     val kenBurns = rememberInfiniteTransition(label = "ken-burns")
-    val zoom by kenBurns.animateFloat(1.02f, 1.12f, infiniteRepeatable(tween(16000, easing = LinearEasing), RepeatMode.Reverse), label = "ken-burns-zoom")
+    val zoom by kenBurns.animateFloat(1f, 1.06f, infiniteRepeatable(tween(16000, easing = LinearEasing), RepeatMode.Reverse), label = "ken-burns-zoom")
+    val registerLook = LocalRegisterArtworkLook.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val heroUrl = media.backdrop.ifBlank { media.poster }
+    DisposableEffect(sourceKey) { onDispose { registerBounds(sourceKey, null) } }
     LaunchedEffect(inList) { saved = inList }
     Box(Modifier.fillMaxWidth().height(500.dp).graphicsLayer {
         val scale = 1f - .08f * kotlin.math.abs(pageOffset()).coerceIn(0f, 1f)
         scaleX = scale; scaleY = scale
-    }.onGloballyPositioned { registerBounds(sourceKey, it.boundsInRoot()) }) {
+    }.onGloballyPositioned {
+        registerBounds(sourceKey, it.boundsInRoot())
+        registerLook(sourceKey, ArtworkLook(heroUrl, with(density) { 30.dp.toPx() }))
+    }) {
         AnimatedVisibility(
             visible = sourceKey !in hiddenArtworkKeys,
-            enter = fadeIn(tween(140)),
-            exit = fadeOut(tween(120))
+            enter = EnterTransition.None,
+            exit = ExitTransition.None
         ) {
             val sharedModifier = if (transitionScope != null && sourceKey != closingArtworkKey && sourceKey.startsWith("saga-")) {
                 with(transitionScope) {
@@ -1760,8 +1776,8 @@ private fun DiscoveryRail(
                 Icon(painterResource(R.drawable.ic_sparkles), null, tint = Color.White, modifier = Modifier.size(22.dp))
             }
         },
-        accent = Sw.Orange,
-        background = Brush.linearGradient(listOf(Color(0xFF2A1612), Color(0xFF15131A), Color(0xFF1A1310))),
+        accent = Sw.Coral,
+        background = Brush.linearGradient(listOf(Color(0xFF2A1216), Color(0xFF15131A), Color(0xFF1C1014))),
         media = media, store = store, onOpen = onOpen, onAction = onAction, onSeeAll = onSeeAll,
         onLoadMore = onLoadMore, loadingMore = loadingMore
     )
@@ -1834,11 +1850,20 @@ private fun SharedArtworkSource(media: Models.Media, sourceKey: String, modifier
     val hiddenArtworkKeys = LocalHiddenArtworkKeys.current
     val closingArtworkKey = LocalClosingArtworkKey.current
     val registerBounds = LocalRegisterArtworkBounds.current
-    Box(modifier.onGloballyPositioned { registerBounds(sourceKey, it.boundsInRoot()) }) {
+    val registerLook = LocalRegisterArtworkLook.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    DisposableEffect(sourceKey) { onDispose { registerBounds(sourceKey, null) } }
+    Box(modifier.onGloballyPositioned {
+        registerBounds(sourceKey, it.boundsInRoot())
+        registerLook(sourceKey, ArtworkLook(url, shape.topStart.toPx(androidx.compose.ui.geometry.Size(it.size.width.toFloat(), it.size.height.toFloat()), density)))
+    }) {
+        // A detail page covers the artwork while it grows out of it, so hiding and revealing it must be
+        // instant: any fade would show up as a flash when the page shrinks back into place.
+        val saga = sourceKey.startsWith("saga-")
         AnimatedVisibility(
             visible = sourceKey !in hiddenArtworkKeys,
-            enter = fadeIn(tween(140)),
-            exit = fadeOut(tween(120))
+            enter = if (saga) fadeIn(tween(140)) else EnterTransition.None,
+            exit = if (saga) fadeOut(tween(120)) else ExitTransition.None
         ) {
             val sharedModifier = if (transitionScope != null && sourceKey != closingArtworkKey && sourceKey.startsWith("saga-")) {
                 with(transitionScope) {
@@ -2396,7 +2421,7 @@ private fun DetailScreen(
                         .noRippleCombinedClickable(onClick = { onPersonClick(person, bounds) }, onLongClick = {}),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    RemoteImage(person.profile, Modifier.size(76.dp).clip(CircleShape).border(2.dp, Brush.linearGradient(listOf(Sw.Red, Sw.Orange)), CircleShape), ContentScale.Crop, fallbackIcon = R.drawable.ic_person)
+                    RemoteImage(person.profile, Modifier.size(76.dp).clip(CircleShape).border(2.dp, Brush.linearGradient(listOf(Sw.Red, Sw.Coral)), CircleShape), ContentScale.Crop, fallbackIcon = R.drawable.ic_person)
                     Text(person.name, color = Ink, fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp).height(38.dp))
                 }
             }
@@ -3354,7 +3379,7 @@ private fun PersonResult(person: Models.Person, onPersonClick: (Models.Person, R
             .noRippleClickable { onPersonClick(person, bounds) }.glass(RoundedCornerShape(24.dp)).padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        RemoteImage(person.profile, Modifier.size(64.dp).clip(CircleShape).border(2.dp, Brush.linearGradient(listOf(Sw.Red, Sw.Orange)), CircleShape), ContentScale.Crop, fallbackIcon = R.drawable.ic_person)
+        RemoteImage(person.profile, Modifier.size(64.dp).clip(CircleShape).border(2.dp, Brush.linearGradient(listOf(Sw.Red, Sw.Coral)), CircleShape), ContentScale.Crop, fallbackIcon = R.drawable.ic_person)
         Column(Modifier.padding(horizontal = 15.dp).weight(1f)) {
             Text(person.name, color = Ink, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(if (person.director) "Regia · filmografia" else "Filmografia completa", color = Muted, fontSize = 12.sp)
@@ -3415,13 +3440,16 @@ private fun PersonCredits(
         credits = withContext(Dispatchers.IO) { runCatching { api.personCredits(person.id, person.director, hideShows).toList() }.getOrDefault(emptyList()) }
     }
     LaunchedEffect(closing) {
-        progress.animateTo(if (closing) 0f else 1f, tween(if (closing) 420 else 560, easing = Sw.Emphasized))
+        if (!closing) awaitTransformReady()
+        progress.animateTo(if (closing) 0f else 1f, if (closing) tween(460, easing = FastOutSlowInEasing) else tween(540, easing = Sw.Emphasized))
         if (closing) dismiss()
     }
     BackHandler(enabled = !closing, onBack = close)
+    val avatarCorner = with(androidx.compose.ui.platform.LocalDensity.current) { 26.dp.toPx() }
     ContainerTransform(
         progress = { progress.value },
         source = { sourceBounds },
+        sourceCornerPx = { avatarCorner },
         preview = { modifier -> RemoteImage(person.profile, modifier, ContentScale.Crop) }
     ) { Surface(Modifier.fillMaxSize(), color = Night) {
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
@@ -3562,7 +3590,7 @@ private fun OnboardingScreen(onImportBackup: () -> Unit, onComplete: () -> Unit)
 private fun OnboardingWordmark() {
     Text(buildAnnotatedString {
         withStyle(SpanStyle(color = Color(0xFFF9F5F7))) { append("STREAM") }
-        withStyle(SpanStyle(color = Sw.Orange)) { append("WISE") }
+        withStyle(SpanStyle(color = Sw.Coral)) { append("WISE") }
     }, fontSize = 29.sp, fontWeight = FontWeight.Black, letterSpacing = 1.1.sp)
 }
 
@@ -3591,7 +3619,7 @@ private fun OnboardingArtwork(page: Int, modifier: Modifier = Modifier) {
                 OnboardingPoster(R.drawable.onboarding_red_planet,
                     Modifier.width(posterWidth).height(posterHeight).graphicsLayer { rotationZ = 2f })
                 Box(Modifier.align(Alignment.Center).offset(y = posterHeight * .52f).width(posterWidth * .75f).height(16.dp)
-                    .background(Brush.radialGradient(listOf(Color(0xAAFF5A45), Color.Transparent))))
+                    .background(Brush.radialGradient(listOf(Color(0xAAE5243A), Color.Transparent))))
             }
             1 -> {
                 OnboardingServiceTile(R.drawable.onboarding_service_netflix, "Netflix", Modifier.align(Alignment.Center).offset(x = (-58 * compactScale).dp, y = (-75 * compactScale).dp).graphicsLayer { rotationZ = -9f; scaleX = compactScale; scaleY = compactScale })
@@ -3688,7 +3716,7 @@ private fun OnboardingAvailability(label: String, logos: List<Int> = emptyList()
             Text(label, color = Color(0xFFB9ADB6), fontSize = 9.sp, maxLines = 1)
             Row(Modifier.padding(top = 6.dp).height(29.dp), horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                if (cinema) Icon(painterResource(R.drawable.ic_movie), "Cinema", tint = Sw.Orange, modifier = Modifier.size(26.dp))
+                if (cinema) Icon(painterResource(R.drawable.ic_movie), "Cinema", tint = Sw.Coral, modifier = Modifier.size(26.dp))
                 else logos.forEach { logo ->
                     androidx.compose.foundation.Image(painterResource(logo), null, Modifier.size(29.dp), contentScale = ContentScale.Fit)
                 }
@@ -3968,7 +3996,7 @@ private fun FilterScreen(type: String, api: TmdbApi, store: LibraryStore, onDism
             Box(Modifier.align(Alignment.TopEnd).offset(x = 90.dp, y = (-80).dp).size(320.dp)
                 .background(Brush.radialGradient(listOf(Sw.Red.copy(alpha = .22f), Color.Transparent)), CircleShape))
             Box(Modifier.align(Alignment.CenterStart).offset(x = (-120).dp).size(280.dp)
-                .background(Brush.radialGradient(listOf(Sw.Orange.copy(alpha = .1f), Color.Transparent)), CircleShape))
+                .background(Brush.radialGradient(listOf(Sw.Coral.copy(alpha = .1f), Color.Transparent)), CircleShape))
             AnimatedContent(
                 showingResults,
                 transitionSpec = {
@@ -4126,7 +4154,7 @@ private fun PlatformTile(platform: TmdbApi.Platform, selected: Boolean, modifier
             .pressScale(interaction, .92f)
             .clip(shape)
             .background(Sw.Surface)
-            .drawBehind { drawRect(Brush.linearGradient(listOf(Sw.Red.copy(alpha = .28f), Sw.Orange.copy(alpha = .12f))), alpha = fill) }
+            .drawBehind { drawRect(Brush.linearGradient(listOf(Sw.Red.copy(alpha = .28f), Sw.Coral.copy(alpha = .12f))), alpha = fill) }
             .border(1.5.dp, if (selected) Sw.Brand else androidx.compose.ui.graphics.SolidColor(Color.White.copy(alpha = .08f)), shape)
             .clickable(interaction, indication = null) { haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove); onClick() }
     ) {
@@ -4263,7 +4291,7 @@ private fun AdvisorSheet(api: TmdbApi, store: LibraryStore, libraryOnly: Boolean
                         label = { Text(item.label) },
                         colors = FilterChipDefaults.filterChipColors(
                             containerColor = Sw.Raised, labelColor = Muted,
-                            selectedContainerColor = Color(0xFF4A2219), selectedLabelColor = Color.White
+                            selectedContainerColor = Color(0xFF4A1C22), selectedLabelColor = Color.White
                         ),
                         border = FilterChipDefaults.filterChipBorder(enabled = true, selected = selected,
                             borderColor = Sw.Outline, selectedBorderColor = CrimsonSoft),
@@ -4890,25 +4918,66 @@ private fun TvGuideProgrammePage(programme: TvGuideRepository.Programme, api: Tm
         recognizing = false
     }
     val image = recognized?.backdrop?.ifBlank { recognized?.poster.orEmpty() }?.ifBlank { programme.image } ?: programme.image
-    LazyColumn(Modifier.fillMaxSize().background(Night).statusBarsPadding(), contentPadding = PaddingValues(20.dp, 12.dp, 20.dp, 40.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onDismiss) { Icon(painterResource(R.drawable.ic_back), "Indietro", tint = Ink) }; Text(programme.channel, color = Ink, fontWeight = FontWeight.Bold) } }
+    val registerSource = LocalRegisterArtworkSource.current
+    // The hero image is the source the detail page grows out of (and shrinks back into).
+    val heroKey = recognized?.let { rememberArtworkSourceKey(it) }
+    val openDetail: () -> Unit = { recognized?.let { media -> heroKey?.let(registerSource); onOpen(media) } }
+    val time = java.time.format.DateTimeFormatter.ofPattern("HH:mm", Locale.ITALIAN)
+    val day = java.time.format.DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ITALIAN)
+    val start = programme.start.atZone(TvGuideRepository.ROME)
+    val end = programme.end.atZone(TvGuideRepository.ROME)
+    LazyColumn(Modifier.fillMaxSize().background(Night).statusBarsPadding(), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 40.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         item {
-            val heroModifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(26.dp))
-            if (recognizing && image.isBlank()) LoadingSkeleton(heroModifier)
-            else RemoteImage(image, heroModifier, ContentScale.Crop, fallbackIcon = if (programme.type == "movie") R.drawable.ic_movie else R.drawable.ic_tv, animatedPlaceholder = true)
-        }
-        item {
-            Row(Modifier.fillMaxWidth().clickable(enabled = recognized != null) { recognized?.let(onOpen) }, verticalAlignment = Alignment.CenterVertically) {
-                Text(recognized?.title ?: programme.title, color = Ink, fontSize = 28.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
-                if (recognized != null) Icon(painterResource(R.drawable.ic_chevron_right), "Dettagli titolo", tint = CrimsonSoft)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                GlassIconButton(R.drawable.ic_back, "Indietro") { onDismiss() }
+                Column(Modifier.padding(start = 14.dp)) {
+                    Text(programme.channel, color = Ink, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                    Text("Canale ${TvGuideRepository.channelNumber(programme.channel)} · Guida TV", color = Muted, fontSize = 12.sp)
+                }
             }
-            if (recognizing) LoadingSkeleton(Modifier.padding(top = 8.dp).width(120.dp).height(18.dp).clip(RoundedCornerShape(6.dp)))
-            recognized?.let { media -> Text("${media.year} · ${if (media.isSeries) "Serie TV" else "Film"}", color = Muted, modifier = Modifier.padding(top = 8.dp)) }
         }
         item {
-            val time = java.time.format.DateTimeFormatter.ofPattern("d MMM · HH:mm", Locale.ITALIAN)
-            val end = java.time.format.DateTimeFormatter.ofPattern("HH:mm", Locale.ITALIAN)
-            Text("${programme.channel} · ${programme.start.atZone(TvGuideRepository.ROME).format(time)} – ${programme.end.atZone(TvGuideRepository.ROME).format(end)}", color = CrimsonSoft, fontWeight = FontWeight.Bold)
+            val heroShape = RoundedCornerShape(26.dp)
+            val heroModifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+            Box(Modifier.reveal(distance = 16.dp)) {
+                if (recognizing && image.isBlank()) LoadingSkeleton(heroModifier.clip(heroShape))
+                else if (recognized != null && heroKey != null) SharedArtworkSource(recognized!!, heroKey, heroModifier.noRippleClickable(openDetail), heroShape, image)
+                else RemoteImage(image, heroModifier.clip(heroShape), ContentScale.Crop, fallbackIcon = if (programme.type == "movie") R.drawable.ic_movie else R.drawable.ic_tv, animatedPlaceholder = true)
+                if (programme.onAir(java.time.Instant.now())) Row(
+                    Modifier.align(Alignment.TopStart).padding(12.dp).clip(CircleShape).background(Color.Black.copy(alpha = .6f)).padding(start = 4.dp, end = 10.dp, top = 3.dp, bottom = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    PulsingDot(LikeGreen, size = 4.dp)
+                    Text("IN ONDA", color = LikeGreen, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                }
+            }
+        }
+        item {
+            Column(Modifier.reveal(60, 16.dp)) {
+                Text(if (programme.type == "movie") "FILM" else "SERIE TV", color = Sw.Accent, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.6.sp)
+                Text(recognized?.title ?: programme.title, style = MaterialTheme.typography.headlineMedium, color = Ink, modifier = Modifier.padding(top = 4.dp))
+                if (recognizing) LoadingSkeleton(Modifier.padding(top = 10.dp).width(140.dp).height(22.dp).clip(CircleShape))
+                else Row(Modifier.padding(top = 10.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    MetaPill("${start.format(time)} – ${end.format(time)}", tint = Sw.Accent, background = Sw.Accent.copy(alpha = .14f))
+                    MetaPill(start.format(day).replaceFirstChar { it.uppercase() }, background = Sw.Raised)
+                    recognized?.let { media ->
+                        MetaPill(media.year, background = Sw.Raised)
+                        if (media.rating > 0) MetaPill(rating(media.rating), icon = R.drawable.ic_star, tint = Sw.Amber, background = Sw.Amber.copy(alpha = .14f))
+                    }
+                }
+            }
+        }
+        if (recognized != null) item {
+            Button(
+                onClick = openDetail,
+                modifier = Modifier.fillMaxWidth().height(54.dp).crimsonGlow(CircleShape, 10.dp),
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White)
+            ) {
+                Icon(painterResource(if (recognized!!.isSeries) R.drawable.ic_tv else R.drawable.ic_movie), null, Modifier.size(20.dp))
+                Spacer(Modifier.width(9.dp))
+                Text("Apri la scheda ${if (recognized!!.isSeries) "della serie" else "del film"}", fontWeight = FontWeight.Bold)
+            }
         }
         item { TvProgrammeReminder(programme) }
         if (programme.episode.isNotBlank()) item { Text(programme.episode, color = Muted) }
@@ -4916,7 +4985,10 @@ private fun TvGuideProgrammePage(programme: TvGuideRepository.Programme, api: Tm
         item {
             if (recognizing && programme.description.isBlank()) Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 listOf(1f, .95f, .7f).forEach { width -> LoadingSkeleton(Modifier.fillMaxWidth(width).height(16.dp).clip(RoundedCornerShape(6.dp))) }
-            } else Text(programme.description.ifBlank { recognized?.overview ?: "Trama non disponibile nella guida." }, color = Muted, lineHeight = 23.sp)
+            } else Column {
+                Text("Trama", style = MaterialTheme.typography.titleLarge, color = Ink)
+                Text(programme.description.ifBlank { recognized?.overview ?: "Trama non disponibile nella guida." }, color = Muted, fontSize = 16.sp, lineHeight = 24.sp, modifier = Modifier.padding(top = 8.dp))
+            }
         }
     }
 }
