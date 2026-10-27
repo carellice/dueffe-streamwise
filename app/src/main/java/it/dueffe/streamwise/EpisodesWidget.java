@@ -22,30 +22,22 @@ public final class EpisodesWidget extends AppWidgetProvider {
         AppWidgetManager manager = AppWidgetManager.getInstance(context);
         int[] ids = manager.getAppWidgetIds(new ComponentName(context, EpisodesWidget.class));
         for (int id : ids) update(context, manager, id);
-        if (ids.length > 0 && android.os.Build.VERSION.SDK_INT < 31) manager.notifyAppWidgetViewDataChanged(ids, R.id.widget_episodes);
+        if (ids.length > 0) manager.notifyAppWidgetViewDataChanged(ids, R.id.widget_episodes);
     }
 
     private static void update(Context context, AppWidgetManager manager, int id) {
         RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_episodes);
         Intent adapter = new Intent(context, EpisodesWidgetService.class).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id);
         adapter.setData(Uri.parse("streamwise-widget://episodes/"+id));
-        if (android.os.Build.VERSION.SDK_INT >= 31) {
-            EpisodesWidgetService.Factory factory = new EpisodesWidgetService.Factory(context);
-            factory.onDataSetChanged();
-            RemoteViews.RemoteCollectionItems.Builder items = new RemoteViews.RemoteCollectionItems.Builder()
-                    .setHasStableIds(true).setViewTypeCount(1);
-            for (int i=0;i<factory.getCount();i++) items.addItem(factory.getItemId(i), factory.getViewAt(i));
-            views.setRemoteAdapter(R.id.widget_episodes, items.build());
-        } else {
-            views.setRemoteAdapter(R.id.widget_episodes, adapter);
-        }
+        // Rows come from the service so each one (with its artwork) is built on a background thread.
+        views.setRemoteAdapter(R.id.widget_episodes, adapter);
         views.setEmptyView(R.id.widget_episodes, R.id.widget_empty);
         views.setOnClickPendingIntent(R.id.widget_title, PendingIntent.getActivity(context, id,
                 new Intent(context, MainActivity.class), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
         views.setOnClickPendingIntent(R.id.widget_refresh, PendingIntent.getBroadcast(context, id,
                 new Intent(context, EpisodesWidget.class).setAction(REFRESH), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
-        views.setPendingIntentTemplate(R.id.widget_episodes, PendingIntent.getBroadcast(context, id,
-                new Intent(context, EpisodesWidget.class).setAction(MARK), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE));
+        views.setPendingIntentTemplate(R.id.widget_episodes, PendingIntent.getActivity(context, id,
+                new Intent(context, WidgetActionActivity.class), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE));
         manager.updateAppWidget(id, views);
     }
 

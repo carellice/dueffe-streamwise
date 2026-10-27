@@ -415,6 +415,8 @@ private fun StreamWiseApp(
     var searchOrigin by remember { mutableStateOf<Rect?>(null) }
     var settings by remember { mutableStateOf(false) }
     var settingsOrigin by remember { mutableStateOf<Rect?>(null) }
+    var aiOpen by remember { mutableStateOf(false) }
+    var aiOrigin by remember { mutableStateOf<Rect?>(null) }
     var filters by remember { mutableStateOf(false) }
     var filtersOrigin by remember { mutableStateOf<Rect?>(null) }
     var selectedSaga by remember { mutableStateOf<SagaCollection?>(null) }
@@ -485,6 +487,7 @@ private fun StreamWiseApp(
                             onSearch = { bounds -> searchOrigin = bounds; search = true },
                             onSettings = { bounds -> settingsOrigin = bounds; settings = true },
                             onAdvisor = { fromLibrary -> advisorFromLibrary = fromLibrary; advisor = true },
+                            onAskAi = { bounds -> aiOrigin = bounds; aiOpen = true },
                             onOpenLibrary = { section -> librarySection = section; tab = Tab.LIBRARY },
                             onDiscover = { tab = Tab.DISCOVER },
                             onOpenGuide = { tab = Tab.GUIDE },
@@ -525,6 +528,9 @@ private fun StreamWiseApp(
 
             if (search) ExpandingPage(searchOrigin, onClosed = { search = false }) { close ->
                 SearchScreen(api, store, refresh, onDismiss = close, onOpen = openFromCatalog)
+            }
+            if (aiOpen) ExpandingPage(aiOrigin, onClosed = { aiOpen = false }, sourceCorner = 26.dp, sourceArt = { AiCardArt(Modifier.fillMaxSize()) }) { close ->
+                AiScreen(api, store, onDismiss = close, onOpen = openFromCatalog)
             }
             if (settings) ExpandingPage(settingsOrigin, onClosed = { settings = false }) { close ->
                 SettingsScreen(store, onDismiss = close, onChanged = { refresh++ }, onExportBackup = onExportBackup, onImportBackup = onImportBackup, onReplayOnboarding = onReplayOnboarding)
@@ -637,6 +643,8 @@ private fun StreamWiseApp(
 private fun ExpandingPage(
     sourceBounds: Rect?,
     onClosed: () -> Unit,
+    sourceCorner: androidx.compose.ui.unit.Dp? = null,
+    sourceArt: (@Composable () -> Unit)? = null,
     content: @Composable (close: () -> Unit) -> Unit
 ) {
     var closing by remember { mutableStateOf(false) }
@@ -651,7 +659,233 @@ private fun ExpandingPage(
             progress.animateTo(1f, tween(540, easing = Sw.Emphasized))
         }
     }
-    ContainerTransform(progress = { progress.value }, source = { sourceBounds }) { content(close) }
+    val cornerPx = sourceCorner?.let { with(androidx.compose.ui.platform.LocalDensity.current) { it.toPx() } }
+    ContainerTransform(
+        progress = { progress.value },
+        source = { sourceBounds },
+        sourceCornerPx = { cornerPx },
+        sourceArt = sourceArt,
+        artFadeEnd = if (sourceArt != null) .3f else null
+    ) { content(close) }
+}
+
+private val AiViolet = Color(0xFFA57BFF)
+
+/** Look of the "Chiedi all'IA" card; also drawn by the page transition that grows out of it. */
+@Composable
+private fun AiCardArt(modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(26.dp)
+    Row(
+        modifier.clip(shape)
+            .background(Brush.linearGradient(listOf(Color(0xFF26123F), Color(0xFF1A1426), Color(0xFF3A0F1E))))
+            .border(1.dp, Brush.linearGradient(listOf(AiViolet.copy(alpha = .55f), Sw.Red.copy(alpha = .35f))), shape)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(46.dp).clip(CircleShape).background(Brush.linearGradient(listOf(AiViolet, Sw.Red))), contentAlignment = Alignment.Center) {
+            Icon(painterResource(R.drawable.ic_sparkles), null, tint = Color.White, modifier = Modifier.size(23.dp))
+        }
+        Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Chiedi all'IA", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                Box(Modifier.padding(start = 8.dp).clip(CircleShape).background(AiViolet.copy(alpha = .22f)).padding(horizontal = 7.dp, vertical = 2.dp)) {
+                    Text("NUOVO", color = AiViolet, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                }
+            }
+            Text("Dimmi cosa ti va: ti consiglio titoli su misura dei tuoi gusti", color = Color.White.copy(alpha = .7f), fontSize = 13.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 2.dp))
+        }
+        Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Color.White.copy(alpha = .7f))
+    }
+}
+
+@Composable
+private fun AiAskCard(modifier: Modifier, onAsk: (Rect?) -> Unit) {
+    var bounds by remember { mutableStateOf<Rect?>(null) }
+    val interaction = remember { MutableInteractionSource() }
+    AiCardArt(
+        modifier.fillMaxWidth()
+            .onGloballyPositioned { bounds = it.boundsInRoot() }
+            .pressScale(interaction, .97f)
+            .clickable(interaction, indication = null) { onAsk(bounds) }
+    )
+}
+
+private fun resolveAiPick(api: TmdbApi, pick: AiPick): Models.Media? = runCatching {
+    api.searchTitles(pick.title, pick.year).toList().firstOrNull { it.mediaType == pick.type }
+        ?: api.searchTitles(pick.title, null).toList().firstOrNull { it.mediaType == pick.type }
+}.getOrNull()
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AiScreen(api: TmdbApi, store: LibraryStore, onDismiss: () -> Unit, onOpen: (Models.Media) -> Unit) {
+    var request by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var type by remember { mutableStateOf("all") }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var results by remember { mutableStateOf<List<Pair<Models.Media, String>>>(emptyList()) }
+    val suggested = remember { mutableStateListOf<String>() }
+    val scope = rememberCoroutineScope()
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    val entries = remember { store.all().toList() }
+    val liked = remember(entries) { entries.filter { it.liked == true }.map { it.media.title }.take(30) }
+    val disliked = remember(entries) { entries.filter { it.liked == false }.map { it.media.title }.take(15) }
+    val watching = remember(entries) { entries.filter { it.state == "progress" }.map { it.media.title }.take(15) }
+    val known = remember(entries) { entries.map { it.media.id }.toSet() }
+    val ask: () -> Unit = {
+        if (!loading) {
+            focusManager.clearFocus(force = true)
+            keyboard?.hide()
+            loading = true
+            error = null
+            scope.launch {
+                // Titles already proposed in this session are excluded, so "Altri consigli" brings new ones.
+                val exclude = (entries.map { it.media.title } + suggested).takeLast(80)
+                val picks = withContext(Dispatchers.IO) { runCatching { AiAdvisor.recommend(type, request.trim(), liked, disliked, watching, exclude) } }
+                val resolved = withContext(Dispatchers.IO) {
+                    coroutineScope { picks.getOrDefault(emptyList()).map { pick -> async { resolveAiPick(api, pick)?.let { it to pick.reason } } }.awaitAll() }
+                }.filterNotNull().filter { (media, _) -> media.id !in known }.distinctBy { it.first.id }
+                picks.getOrNull()?.let { list -> suggested.addAll(list.map { it.title }) }
+                results = resolved
+                error = when {
+                    picks.isFailure -> "Non riesco a contattare l'IA. Controlla la connessione e riprova."
+                    resolved.isEmpty() -> "Nessun titolo adatto questa volta. Prova a riformulare la richiesta."
+                    else -> null
+                }
+                loading = false
+            }
+        }
+    }
+    BackHandler(onBack = onDismiss)
+    Surface(Modifier.fillMaxSize(), color = Night) {
+        Box(Modifier.fillMaxSize()) {
+            Box(Modifier.align(Alignment.TopEnd).offset(x = 90.dp, y = (-90).dp).size(340.dp)
+                .background(Brush.radialGradient(listOf(AiViolet.copy(alpha = .22f), Color.Transparent)), CircleShape))
+            LazyColumn(
+                Modifier.fillMaxSize().statusBarsPadding(),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 40.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        GlassIconButton(R.drawable.ic_back, "Indietro") { onDismiss() }
+                        Column(Modifier.padding(start = 14.dp)) {
+                            Text("INTELLIGENZA ARTIFICIALE", color = AiViolet, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp)
+                            Text("Chiedi all'IA", style = MaterialTheme.typography.headlineMedium, color = Ink)
+                        }
+                    }
+                }
+                item {
+                    Text(
+                        if (liked.isEmpty()) "Dimmi cosa ti va e ti propongo qualcosa. Più titoli valuti con “Mi piace”, più i consigli diventano tuoi."
+                        else "Consigli basati sui ${liked.size} titoli che ti sono piaciuti e su ciò che mi chiedi.",
+                        color = Muted, fontSize = 15.sp, lineHeight = 21.sp
+                    )
+                }
+                item {
+                    Box(
+                        Modifier.fillMaxWidth().heightIn(min = 104.dp).clip(RoundedCornerShape(24.dp))
+                            .background(Sw.Surface)
+                            .border(1.dp, Brush.linearGradient(listOf(AiViolet.copy(alpha = .5f), Sw.Red.copy(alpha = .3f))), RoundedCornerShape(24.dp))
+                            .padding(16.dp)
+                    ) {
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = request,
+                            onValueChange = { request = it.take(300) },
+                            textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 16.sp, lineHeight = 22.sp),
+                            cursorBrush = androidx.compose.ui.graphics.SolidColor(AiViolet),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = { ask() }),
+                            modifier = Modifier.fillMaxWidth(),
+                            decorationBox = { inner ->
+                                Box {
+                                    if (request.isEmpty()) Text("Cosa ti va stasera? Ad esempio: qualcosa di leggero, che duri meno di due ore", color = Muted, fontSize = 16.sp, lineHeight = 22.sp)
+                                    inner()
+                                }
+                            }
+                        )
+                    }
+                }
+                item {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("Qualcosa di leggero", "Un thriller che non mi aspetto", "Una serie breve", "Da vedere in coppia", "Un classico da recuperare").forEach { idea ->
+                            val active = request == idea
+                            Box(
+                                Modifier.clip(CircleShape)
+                                    .background(if (active) AiViolet.copy(alpha = .22f) else Sw.Raised)
+                                    .border(1.dp, if (active) AiViolet else Color.White.copy(alpha = .06f), CircleShape)
+                                    .noRippleClickable { request = idea }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                            ) { Text(idea, color = if (active) Color.White else Ink.copy(alpha = .85f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+                        }
+                    }
+                }
+                item {
+                    SegmentedPills(listOf("Tutto", "Film", "Serie TV"), listOf("all", "movie", "tv").indexOf(type), Modifier.fillMaxWidth(), height = 42.dp) {
+                        type = listOf("all", "movie", "tv")[it]
+                    }
+                }
+                item {
+                    Button(
+                        onClick = ask,
+                        enabled = !loading,
+                        modifier = Modifier.fillMaxWidth().height(56.dp)
+                            .shadow(14.dp, CircleShape, ambientColor = AiViolet, spotColor = AiViolet)
+                            .background(Brush.linearGradient(listOf(AiViolet, Sw.Red)), CircleShape),
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White, disabledContainerColor = Color.Transparent, disabledContentColor = Color.White)
+                    ) {
+                        AnimatedContent(loading, label = "ai-button") { busy ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                                else Icon(painterResource(R.drawable.ic_sparkles), null, Modifier.size(21.dp))
+                                Spacer(Modifier.width(10.dp))
+                                Text(if (busy) "Sto pensando ai tuoi gusti…" else if (results.isEmpty()) "Consigliami" else "Altri consigli", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            }
+                        }
+                    }
+                }
+                error?.let { message -> item { Text(message, color = DislikeRed, fontSize = 14.sp, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center) } }
+                if (loading) items(3) {
+                    Row(Modifier.fillMaxWidth().glass(RoundedCornerShape(22.dp)).padding(10.dp)) {
+                        LoadingSkeleton(Modifier.size(84.dp, 124.dp).clip(RoundedCornerShape(14.dp)))
+                        Column(Modifier.weight(1f).padding(start = 14.dp, top = 6.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            LoadingSkeleton(Modifier.fillMaxWidth(.4f).height(10.dp).clip(CircleShape))
+                            LoadingSkeleton(Modifier.fillMaxWidth(.8f).height(16.dp).clip(CircleShape))
+                            LoadingSkeleton(Modifier.fillMaxWidth().height(12.dp).clip(CircleShape))
+                            LoadingSkeleton(Modifier.fillMaxWidth(.7f).height(12.dp).clip(CircleShape))
+                        }
+                    }
+                }
+                else itemsIndexed(results, key = { _, item -> item.first.id }) { index, (media, reason) ->
+                    AiResultCard(media, reason, Modifier.reveal(delayMillis = index * 70, distance = 24.dp)) { onOpen(media) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiResultCard(media: Models.Media, reason: String, modifier: Modifier, open: () -> Unit) {
+    val sourceKey = rememberArtworkSourceKey(media)
+    val registerSource = LocalRegisterArtworkSource.current
+    Row(
+        modifier.fillMaxWidth()
+            .noRippleClickable { registerSource(sourceKey); open() }
+            .glass(RoundedCornerShape(22.dp))
+            .padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        SharedArtworkSource(media, sourceKey, Modifier.size(84.dp, 124.dp), RoundedCornerShape(14.dp))
+        Column(Modifier.weight(1f).padding(start = 14.dp, end = 4.dp)) {
+            Text("${if (media.isSeries) "SERIE TV" else "FILM"} · ${media.year}", color = Sw.Accent, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp)
+            Text(media.title, color = Ink, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+            if (reason.isNotBlank()) Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.Top) {
+                Icon(painterResource(R.drawable.ic_sparkles), null, tint = AiViolet, modifier = Modifier.padding(top = 2.dp).size(14.dp))
+                Text(reason.replaceFirstChar { it.uppercase() }, color = Muted, fontSize = 13.sp, lineHeight = 18.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, modifier = Modifier.padding(start = 6.dp))
+            }
+        }
+    }
 }
 
 private fun greeting(): String = when (java.time.LocalTime.now(TvGuideRepository.ROME).hour) {
@@ -670,6 +904,7 @@ private fun HomeScreen(
     onSearch: (Rect?) -> Unit,
     onSettings: (Rect?) -> Unit,
     onAdvisor: (Boolean) -> Unit,
+    onAskAi: (Rect?) -> Unit,
     onOpenLibrary: (LibrarySection) -> Unit,
     onDiscover: () -> Unit,
     onOpenGuide: () -> Unit,
@@ -694,6 +929,20 @@ private fun HomeScreen(
             }
         }
     }
+    val holiday = remember { currentHoliday() }
+    var holidayMedia by remember { mutableStateOf<List<Models.Media>>(emptyList()) }
+    LaunchedEffect(holiday) {
+        val season = holiday ?: return@LaunchedEffect
+        holidayMedia = withContext(Dispatchers.IO) {
+            coroutineScope {
+                val movies = async { runCatching { api.holiday(season.id, "movie", 1).toList() }.getOrDefault(emptyList()) }
+                val series = async { runCatching { api.holiday(season.id, "tv", 1).toList() }.getOrDefault(emptyList()) }
+                val m = movies.await()
+                val s = series.await()
+                (0 until maxOf(m.size, s.size)).flatMap { listOfNotNull(m.getOrNull(it), s.getOrNull(it)) }
+            }
+        }
+    }
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = statusTop + 14.dp, bottom = 132.dp), verticalArrangement = Arrangement.spacedBy(28.dp)) {
         item {
@@ -709,6 +958,10 @@ private fun HomeScreen(
             }
         }
         item { AdvisorCards(progress.isNotEmpty() || saved.isNotEmpty(), Modifier.reveal(90), onAdvisor) }
+        if (AiAdvisor.available) item { AiAskCard(Modifier.padding(horizontal = 20.dp).reveal(120), onAskAi) }
+        if (holiday != null && holidayMedia.any { it.id !in hidden }) item {
+            HolidayRail(holiday, holidayMedia.filter { it.id !in hidden }, store, onOpen, onAction, onSeeAll = { onDiscover() }, onLoadMore = null, loadingMore = false)
+        }
         if (progress.isNotEmpty()) item {
             Column(Modifier.reveal(160)) {
                 SectionHeader("Continua a guardare", eyebrow = "Riprendi da dove eri", onAction = { onOpenLibrary(LibrarySection.PROGRESS) })
@@ -1166,6 +1419,23 @@ private const val TASTE_RAIL = "Consigliati per te"
 private const val TRUE_STORIES_RAIL = "Storie vere"
 private const val TRUE_CRIME_RAIL = "True crime"
 private const val APOCALYPTIC_RAIL = "Apocalittici"
+private const val HOLIDAY_RAIL = "Speciale festività"
+
+/** Seasonal sections: Halloween for all of October, Christmas from mid November to Epiphany. */
+private enum class Holiday(val id: String, val title: String, val eyebrow: String, val subtitle: String, val emoji: String, val accent: Color, val background: List<Color>) {
+    HALLOWEEN("halloween", "Speciale Halloween", "BRIVIDI DI STAGIONE", "Streghe, zucche e notti da paura: film e serie a tema.", "🎃",
+        Color(0xFFFF8A1E), listOf(Color(0xFF2B1608), Color(0xFF15111C), Color(0xFF1E0F1F))),
+    CHRISTMAS("christmas", "Speciale Natale", "ATMOSFERA NATALIZIA", "Film e serie da guardare sotto l’albero.", "🎄",
+        Color(0xFF3DDC84), listOf(Color(0xFF0F2A1C), Color(0xFF15131A), Color(0xFF2A0F14)))
+}
+
+private fun currentHoliday(today: java.time.LocalDate = java.time.LocalDate.now(TvGuideRepository.ROME)): Holiday? = when {
+    today.monthValue == 10 -> Holiday.HALLOWEEN
+    today.monthValue == 11 && today.dayOfMonth >= 15 -> Holiday.CHRISTMAS
+    today.monthValue == 12 -> Holiday.CHRISTMAS
+    today.monthValue == 1 && today.dayOfMonth <= 6 -> Holiday.CHRISTMAS
+    else -> null
+}
 
 private fun continueWatchingOrder(entries: List<Models.LibraryEntry>): List<Models.LibraryEntry> =
     entries.sortedWith(
@@ -1225,6 +1495,16 @@ private fun CatalogScreen(kind: Kind, api: TmdbApi, store: LibraryStore, refresh
     var trueCrimeRefreshing by remember(kind) { mutableStateOf(false) }
     var trueCrimeLoadingMore by remember(kind) { mutableStateOf(false) }
     var filtersButtonBounds by remember(kind) { mutableStateOf<Rect?>(null) }
+    val holiday = remember { currentHoliday() }
+    var holidayMedia by remember(kind) { mutableStateOf<List<Models.Media>>(emptyList()) }
+    var holidayPage by remember(kind) { mutableIntStateOf(1) }
+    var holidayHasMore by remember(kind) { mutableStateOf(true) }
+    var holidayLoadingMore by remember(kind) { mutableStateOf(false) }
+    LaunchedEffect(kind, reloadVersion) {
+        val season = holiday ?: return@LaunchedEffect
+        val first = withContext(Dispatchers.IO) { runCatching { api.holiday(season.id, type, 1).toList() }.getOrDefault(emptyList()) }
+        holidayMedia = first; holidayPage = 1; holidayHasMore = first.isNotEmpty()
+    }
     val likedSeeds = remember(kind, refresh) { store.all().filter { it.liked == true && it.state != "hidden" }.map { it.media } }
     var tasteSeeds by remember(kind) { mutableStateOf<List<Models.Media>>(emptyList()) }
     var tasteMedia by remember(kind) { mutableStateOf<List<Models.Media>>(emptyList()) }
@@ -1295,6 +1575,18 @@ private fun CatalogScreen(kind: Kind, api: TmdbApi, store: LibraryStore, refresh
             tastePageNumber = nextPage
             tasteHasMore = more.isNotEmpty() && nextPage < 20
             tasteLoadingMore = false
+        }
+    }
+    fun loadMoreHoliday() {
+        val season = holiday ?: return
+        if (holidayLoadingMore || !holidayHasMore) return
+        holidayLoadingMore = true
+        scope.launch {
+            val nextPage = holidayPage + 1
+            val more = withContext(Dispatchers.IO) { runCatching { api.holiday(season.id, type, nextPage).toList() }.getOrDefault(emptyList()) }
+            holidayPage = nextPage
+            if (more.isEmpty()) holidayHasMore = false else holidayMedia = (holidayMedia + more).distinctBy { it.id }
+            holidayLoadingMore = false
         }
     }
     fun loadMoreRail(rail: CatalogRail) {
@@ -1480,6 +1772,10 @@ private fun CatalogScreen(kind: Kind, api: TmdbApi, store: LibraryStore, refresh
                             Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Muted)
                         }
                     }
+                    if (holiday != null && holidayMedia.any { it.id !in hidden }) item {
+                        HolidayRail(holiday, holidayMedia.filter { it.id !in hidden }, store, onOpen, onAction,
+                            onSeeAll = { expandRail(HOLIDAY_RAIL, it) }, onLoadMore = if (holidayHasMore) ::loadMoreHoliday else null, loadingMore = holidayLoadingMore)
+                    }
                     item { NewReleasesSection(type, newReleases, store, refresh, onOpen, onAction) { bounds -> expandRail(NEW_RELEASES_RAIL, bounds) } }
                     item { MediaRail("Top 10 oggi", data!!.trending.filter { it.id !in hidden }, store, onOpen, onAction, ranked = true, onSeeAll = { expandRail("Top 10 oggi", it) }) }
                     if (likedSeeds.isNotEmpty() && tasteMedia.isNotEmpty()) item {
@@ -1529,6 +1825,7 @@ private fun CatalogScreen(kind: Kind, api: TmdbApi, store: LibraryStore, refresh
         val hidden = store.byState("hidden").map { it.id }.toSet()
         val media = when (name) {
             NEW_RELEASES_RAIL -> newReleases.media
+            HOLIDAY_RAIL -> holidayMedia
             MASTERPIECES_RAIL -> catalog.masterpieces
             TASTE_RAIL -> tasteMedia
             TRUE_STORIES_RAIL -> catalog.trueStories
@@ -1537,17 +1834,21 @@ private fun CatalogScreen(kind: Kind, api: TmdbApi, store: LibraryStore, refresh
             "Top 10 oggi" -> catalog.trending
             else -> rail?.media ?: emptyList()
         }.filter { it.id !in hidden }
-        ExpandingPage(expandedRailOrigin, onClosed = ::dismissExpandedRail) { close -> CatalogExpandedScreen(
-            title = if (name == NEW_RELEASES_RAIL) "Novità · ${if (newReleases.upcoming) "In arrivo" else "Appena usciti"}" else name,
+        ExpandingPage(
+            expandedRailOrigin, onClosed = ::dismissExpandedRail, sourceCorner = 17.dp,
+            sourceArt = { SeeAllChipArt(if (name == MASTERPIECES_RAIL || name == TASTE_RAIL || name == HOLIDAY_RAIL) "Tutti" else "Vedi tutto", Modifier.fillMaxSize()) }
+        ) { close -> CatalogExpandedScreen(
+            title = if (name == NEW_RELEASES_RAIL) "Novità · ${if (newReleases.upcoming) "In arrivo" else "Appena usciti"}" else if (name == HOLIDAY_RAIL) holiday?.title ?: name else name,
             media = media,
             store = store,
-            loadingMore = when (name) { NEW_RELEASES_RAIL -> newReleases.loadingMore; MASTERPIECES_RAIL -> masterpiecesLoadingMore; TASTE_RAIL -> tasteLoadingMore; TRUE_STORIES_RAIL -> trueStoriesLoadingMore; TRUE_CRIME_RAIL -> trueCrimeLoadingMore; APOCALYPTIC_RAIL -> apocalypticLoadingMore; else -> rail != null && loadingRail == rail.name },
+            loadingMore = when (name) { NEW_RELEASES_RAIL -> newReleases.loadingMore; HOLIDAY_RAIL -> holidayLoadingMore; MASTERPIECES_RAIL -> masterpiecesLoadingMore; TASTE_RAIL -> tasteLoadingMore; TRUE_STORIES_RAIL -> trueStoriesLoadingMore; TRUE_CRIME_RAIL -> trueCrimeLoadingMore; APOCALYPTIC_RAIL -> apocalypticLoadingMore; else -> rail != null && loadingRail == rail.name },
             refreshing = when (name) { NEW_RELEASES_RAIL -> newReleases.loading; MASTERPIECES_RAIL -> masterpiecesRefreshing; TASTE_RAIL -> tasteRefreshing; TRUE_STORIES_RAIL -> trueStoriesRefreshing; TRUE_CRIME_RAIL -> trueCrimeRefreshing; APOCALYPTIC_RAIL -> apocalypticRefreshing; else -> false },
             onDismiss = close,
             onOpen = onOpen,
             onAction = onAction,
             onLoadMore = when {
                 name == NEW_RELEASES_RAIL && newReleases.hasMore -> newReleases.loadMore
+                name == HOLIDAY_RAIL && holidayHasMore -> ::loadMoreHoliday
                 name == MASTERPIECES_RAIL -> ::loadMoreMasterpieces
                 name == TASTE_RAIL && tasteHasMore -> ::loadMoreTaste
                 name == TRUE_STORIES_RAIL && trueStoriesHasMore -> ::loadMoreTrueStories
@@ -1764,6 +2065,35 @@ private fun SpotlightRail(
             if (onLoadMore != null) item { LoadMoreTile(onLoadMore, loadingMore, accent) }
         }
     }
+}
+
+@Composable
+private fun HolidayRail(
+    holiday: Holiday,
+    media: List<Models.Media>,
+    store: LibraryStore,
+    onOpen: (Models.Media) -> Unit,
+    onAction: (Models.Media) -> Unit,
+    onSeeAll: (Rect?) -> Unit,
+    onLoadMore: (() -> Unit)?,
+    loadingMore: Boolean
+) {
+    val transition = rememberInfiniteTransition(label = "holiday-icon")
+    val bob by transition.animateFloat(-4f, 4f, infiniteRepeatable(tween(1400, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "holiday-bob")
+    SpotlightRail(
+        holiday.eyebrow, holiday.title, holiday.subtitle,
+        icon = {
+            Box(
+                Modifier.size(44.dp).graphicsLayer { translationY = bob.dp.toPx(); rotationZ = bob * 1.5f }
+                    .clip(CircleShape).background(holiday.accent.copy(alpha = .18f)).border(1.dp, holiday.accent.copy(alpha = .55f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) { Text(holiday.emoji, fontSize = 22.sp) }
+        },
+        accent = holiday.accent,
+        background = Brush.linearGradient(holiday.background),
+        media = media, store = store, onOpen = onOpen, onAction = onAction, onSeeAll = onSeeAll,
+        onLoadMore = onLoadMore, loadingMore = loadingMore
+    )
 }
 
 @Composable
@@ -2021,6 +2351,8 @@ private fun DetailScreen(
     var imageGallery by remember(initial.id) { mutableStateOf<List<String>>(emptyList()) }
     var episodes by remember { mutableStateOf(false) }
     var episodesOrigin by remember(initial.id) { mutableStateOf<Rect?>(null) }
+    var genrePage by remember(initial.id) { mutableStateOf<Pair<Int, String>?>(null) }
+    var genreOrigin by remember(initial.id) { mutableStateOf<Rect?>(null) }
     var hideConfirm by remember { mutableStateOf(false) }
     var selectedPerson by remember(initial.id) { mutableStateOf<PersonSelection?>(null) }
     var listVersion by remember { mutableIntStateOf(0) }
@@ -2157,7 +2489,14 @@ private fun DetailScreen(
                             if (media.rating > 0) MetaPill(rating(media.rating), icon = R.drawable.ic_star, tint = Sw.Amber, background = Sw.Amber.copy(alpha = .14f))
                             MetaPill(media.year, background = Sw.Raised)
                             durationLabel(media)?.let { MetaPill(it, background = Sw.Raised) }
-                            media.genres.take(3).forEach { MetaPill(it, tint = Muted, background = Sw.Raised) }
+                            media.genres.take(3).forEachIndexed { index, genre ->
+                                // Names and ids come from the same TMDB list, so the first entries line up.
+                                val genreId = media.genreIds.getOrNull(index)
+                                var bounds by remember(media.id, index) { mutableStateOf<Rect?>(null) }
+                                GenrePill(genre, clickable = genreId != null, modifier = Modifier
+                                    .onGloballyPositioned { bounds = it.boundsInRoot() }
+                                    .then(if (genreId != null) Modifier.noRippleClickable { genreOrigin = bounds; genrePage = genreId to genre } else Modifier))
+                            }
                         }
                         Row(Modifier.padding(top = 18.dp).height(56.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Button({ if (inList) store.remove(media) else store.save(media); listVersion++; onRefresh() },
@@ -2377,7 +2716,19 @@ private fun DetailScreen(
     selectedPerson?.let { selection ->
         PersonCredits(selection.person, api, store, sourceBounds = selection.sourceBounds, dismiss = { selectedPerson = null }, onOpen = onOpen, keepOpenOnMediaOpen = true)
     }
-    if (episodes) ExpandingPage(episodesOrigin, onClosed = { episodes = false }) { close ->
+    genrePage?.let { (genreId, genreName) ->
+        ExpandingPage(genreOrigin, onClosed = { genrePage = null }, sourceCorner = 14.dp, sourceArt = { GenrePill(genreName, clickable = true, modifier = Modifier.fillMaxSize()) }) { close ->
+            GenreScreen(media.mediaType, genreId, genreName, api, store, onDismiss = close, onOpen = onOpen, onAction = onAction)
+        }
+    }
+    // The episodes page grows out of the button itself, drawn as it looks, not from an empty dark shape.
+    if (episodes) ExpandingPage(episodesOrigin, onClosed = { episodes = false }, sourceCorner = 18.dp, sourceArt = {
+        Row(Modifier.fillMaxSize().background(Sw.Brand, RoundedCornerShape(18.dp)), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            Icon(painterResource(R.drawable.ic_tv), null, Modifier.size(20.dp), tint = Color.White)
+            Spacer(Modifier.width(6.dp))
+            Text("Episodi", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+        }
+    }) { close ->
         EpisodesScreen(media, api, store, onDismiss = close, onChanged = { listVersion++; onRefresh() })
     }
     if (showReaction) ReactionDialog(media.title, onChoice = { liked ->
@@ -2396,6 +2747,80 @@ private fun DetailScreen(
         confirmButton = { TextButton({ store.hide(media); hideConfirm = false; onRefresh(); closeDetail() }) { Text("Nascondi") } },
         dismissButton = { TextButton({ hideConfirm = false }) { Text("Annulla") } }
     )
+}
+
+/** Genre tag in the detail header; tappable ones show a chevron and open that genre's titles. */
+@Composable
+private fun GenrePill(genre: String, clickable: Boolean, modifier: Modifier = Modifier) {
+    Row(
+        modifier.clip(CircleShape)
+            .background(Sw.Raised)
+            .border(1.dp, if (clickable) Sw.Accent.copy(alpha = .3f) else Color.Transparent, CircleShape)
+            .padding(start = 9.dp, end = if (clickable) 5.dp else 9.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Text(genre, color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        if (clickable) Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Sw.Accent, modifier = Modifier.padding(start = 1.dp).size(13.dp))
+    }
+}
+
+@Composable
+private fun GenreScreen(type: String, genreId: Int, genreName: String, api: TmdbApi, store: LibraryStore, onDismiss: () -> Unit, onOpen: (Models.Media) -> Unit, onAction: (Models.Media) -> Unit) {
+    var results by remember(type, genreId) { mutableStateOf<List<Models.Media>?>(null) }
+    var page by remember(type, genreId) { mutableIntStateOf(1) }
+    var hasMore by remember(type, genreId) { mutableStateOf(true) }
+    var loadingMore by remember(type, genreId) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val gridState = rememberLazyGridState()
+    LaunchedEffect(type, genreId) {
+        val first = withContext(Dispatchers.IO) { runCatching { api.discover(type, 1, genreId, null, "popular").toList() }.getOrDefault(emptyList()) }
+        results = first
+        hasMore = first.isNotEmpty()
+    }
+    val loadMore: () -> Unit = {
+        if (!loadingMore && hasMore) {
+            loadingMore = true
+            scope.launch {
+                val next = page + 1
+                val more = withContext(Dispatchers.IO) { runCatching { api.discover(type, next, genreId, null, "popular").toList() }.getOrDefault(emptyList()) }
+                page = next
+                if (more.isEmpty()) hasMore = false else results = (results.orEmpty() + more).distinctBy { it.id }
+                loadingMore = false
+            }
+        }
+    }
+    val atEnd by remember { derivedStateOf { gridState.layoutInfo.let { it.totalItemsCount > 0 && (it.visibleItemsInfo.lastOrNull()?.index ?: -1) >= it.totalItemsCount - 4 } } }
+    LaunchedEffect(atEnd) { if (atEnd) loadMore() }
+    BackHandler(onBack = onDismiss)
+    Surface(Modifier.fillMaxSize(), color = Night) {
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                GlassIconButton(R.drawable.ic_back, "Indietro") { onDismiss() }
+                Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+                    Text(if (type == "tv") "SERIE TV · PIÙ POPOLARI" else "FILM · PIÙ POPOLARI", color = Sw.Accent, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp)
+                    Text(genreName, style = MaterialTheme.typography.headlineMedium, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            val list = results
+            if (list == null) Column(Modifier.padding(top = 24.dp)) { RailSkeleton(null) }
+            else if (list.isEmpty()) EmptyState(R.drawable.ic_search, "Nessun titolo trovato", "Non ci sono titoli disponibili per questo genere al momento.")
+            else LazyVerticalGrid(
+                columns = GridCells.Adaptive(104.dp), state = gridState, modifier = Modifier.weight(1f).fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 32.dp)
+            ) {
+                gridItemsIndexed(list, key = { _, media -> media.id }) { index, media ->
+                    Box(Modifier.reveal(delayMillis = (index % 12) * 40, distance = 24.dp)) {
+                        SearchPosterCard(media, store.get(media), onLongPress = { onAction(media) }) { onOpen(media) }
+                    }
+                }
+                if (loadingMore) item(span = { GridItemSpan(maxLineSpan) }) {
+                    Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(26.dp), color = Sw.Accent, strokeWidth = 2.5.dp) }
+                }
+            }
+        }
+    }
 }
 
 @Composable private fun FlowChips(values: List<String>) { Row(Modifier.padding(top = 14.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) { values.forEach { SuggestionChip({}, { Text(it) }, shape = RoundedCornerShape(14.dp)) } } }

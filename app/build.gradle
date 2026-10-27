@@ -13,6 +13,9 @@ if (rootProject.file('local.properties').exists()) rootProject.file('local.prope
 def signingProps = new Properties()
 if (rootProject.file('.streamwise-signing.properties').exists()) rootProject.file('.streamwise-signing.properties').withInputStream { signingProps.load(it) }
 def tmdbKey = System.getenv('TMDB_API_KEY') ?: localProps.getProperty('tmdb.api.key', '')
+// Optional AI recommendations (Cloudflare Worker in ai-worker/); without them the feature stays hidden.
+def aiEndpoint = System.getenv('AI_ENDPOINT') ?: localProps.getProperty('ai.endpoint', '')
+def aiKey = System.getenv('AI_KEY') ?: localProps.getProperty('ai.key', '')
 
 android {
     namespace 'it.dueffe.streamwise'
@@ -30,6 +33,8 @@ android {
         versionCode versionProps.getProperty('VERSION_CODE', '1').toInteger()
         versionName versionProps.getProperty('VERSION_NAME', '1.0.0')
         buildConfigField 'String', 'TMDB_API_KEY', '"' + tmdbKey.replace('"', '\\"') + '"'
+        buildConfigField 'String', 'AI_ENDPOINT', '"' + aiEndpoint.replace('"', '') + '"'
+        buildConfigField 'String', 'AI_KEY', '"' + aiKey.replace('"', '') + '"'
     }
 
     if (!signingProps.isEmpty()) {

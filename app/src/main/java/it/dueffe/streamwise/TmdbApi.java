@@ -36,6 +36,8 @@ final class TmdbApi {
     private String trueStoryKeywordIds;
     private String apocalypticKeywordIds;
     private String trueCrimeKeywordIds;
+    private String halloweenKeywordIds;
+    private String christmasKeywordIds;
     private int timeout = 12000;
     TmdbApi(String key, int timeout){this(key);this.timeout=timeout;}
     TmdbApi(String key){this.key=key==null?"":key.trim();}
@@ -177,6 +179,22 @@ final class TmdbApi {
         String ids=trueCrimeKeywordIds();if(ids.isEmpty())return new ArrayList<>();
         Map<String,String> q=new LinkedHashMap<>();q.put("page",String.valueOf(page));q.put("include_adult","false");q.put("with_keywords",ids);q.put("sort_by","popularity.desc");
         return mediaList(get("/discover/"+type,q).optJSONArray("results"),type,18);
+    }
+    /** Seasonal picks: "halloween" or "christmas" themed titles, most popular first. */
+    List<Models.Media> holiday(String holiday,String type,int page) throws Exception{
+        String ids="halloween".equals(holiday)?halloweenKeywordIds():christmasKeywordIds();if(ids.isEmpty())return new ArrayList<>();
+        Map<String,String> q=new LinkedHashMap<>();q.put("page",String.valueOf(page));q.put("include_adult","false");q.put("with_keywords",ids);q.put("sort_by","popularity.desc");
+        return mediaList(get("/discover/"+type,q).optJSONArray("results"),type,18);
+    }
+    private synchronized String halloweenKeywordIds() throws Exception{
+        if(halloweenKeywordIds!=null)return halloweenKeywordIds;
+        halloweenKeywordIds=findKeywordIds("halloween","trick or treating","jack-o'-lantern","halloween party");
+        return halloweenKeywordIds;
+    }
+    private synchronized String christmasKeywordIds() throws Exception{
+        if(christmasKeywordIds!=null)return christmasKeywordIds;
+        christmasKeywordIds=findKeywordIds("christmas","christmas eve","santa claus","christmas party","christmas tree");
+        return christmasKeywordIds;
     }
     List<Models.Provider> subscriptionAvailability(Models.Media media)throws Exception{
         JSONObject regions=get("/"+media.mediaType+"/"+media.tmdbId+"/watch/providers",null).optJSONObject("results");

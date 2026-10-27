@@ -383,6 +383,8 @@ internal fun ContainerTransform(
     sourceCornerPx: () -> Float? = { null },
     preview: (@Composable (Modifier) -> Unit)? = null,
     sourceArt: (@Composable () -> Unit)? = null,
+    // Small sources (buttons, chips) should hand over quickly instead of zooming into giant text.
+    artFadeEnd: Float? = null,
     content: @Composable () -> Unit
 ) {
     var origin by remember { mutableStateOf(Offset.Zero) }
@@ -432,7 +434,7 @@ internal fun ContainerTransform(
                         scaleY = scale
                         translationX = rect.center.x - src.width * scale / 2f
                         translationY = rect.center.y - src.height * scale / 2f
-                        alpha = 1f - transformContentAlpha(p)
+                        alpha = if (artFadeEnd != null) (1f - p / artFadeEnd).coerceIn(0f, 1f) else 1f - transformContentAlpha(p)
                     }
                 }
             }) { sourceArt() }
@@ -464,4 +466,21 @@ internal fun AnimatedCount(value: Int, content: @Composable (Int) -> Unit) {
     val animated = remember { Animatable(0f) }
     LaunchedEffect(value) { animated.animateTo(value.toFloat(), tween(900, easing = Sw.Decelerate)) }
     content(animated.value.toInt())
+}
+
+/** The "Vedi tutto" chip's look, shared by the header and by the page transition that grows out of it. */
+@Composable
+internal fun SeeAllChipArt(label: String, modifier: Modifier = Modifier) {
+    Row(
+        modifier.clip(CircleShape)
+            .background(Sw.Background)
+            .background(Sw.Accent.copy(alpha = .12f))
+            .border(1.dp, Sw.Accent.copy(alpha = .35f), CircleShape)
+            .padding(start = 13.dp, end = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Text(label, color = Sw.Accent, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
+        Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Sw.Accent, modifier = Modifier.padding(start = 2.dp).size(17.dp))
+    }
 }

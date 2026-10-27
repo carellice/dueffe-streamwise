@@ -1,10 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="14dp" android:background="@drawable/widget_card">
-    <TextView android:id="@+id/widget_series" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#F5F1F2" android:fontFamily="sans-serif-medium" android:textSize="16sp" android:maxLines="2" android:ellipsize="end" />
-    <TextView android:id="@+id/widget_episode" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="5dp" android:paddingBottom="12dp" android:textColor="#E27A8D" android:textSize="13sp" />
-    <TextView android:id="@+id/widget_seen" android:layout_width="match_parent" android:layout_height="48dp" android:gravity="center" android:background="@drawable/widget_action_background" android:text="@string/widget_seen_label" android:fontFamily="sans-serif-medium" android:textColor="#FFFFFF" android:textSize="14sp" />
-    <LinearLayout android:id="@+id/widget_reactions" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone">
-        <TextView android:id="@+id/widget_like" android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp" android:layout_marginEnd="4dp" android:gravity="center" android:background="@drawable/widget_refresh_background" android:text="@string/widget_like_label" android:textSize="13sp" android:textColor="#54D8A2" />
-        <TextView android:id="@+id/widget_dislike" android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp" android:layout_marginStart="4dp" android:gravity="center" android:background="@drawable/widget_refresh_background" android:text="@string/widget_dislike_label" android:textSize="13sp" android:textColor="#FF7085" />
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/widget_card" android:layout_width="match_parent" android:layout_height="128dp" android:background="@drawable/widget_card" android:clipToOutline="true">
+    <ImageView android:id="@+id/widget_art" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="centerCrop" android:importantForAccessibility="no" />
+    <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" android:src="@drawable/widget_scrim" android:importantForAccessibility="no" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="bottom" android:orientation="horizontal" android:gravity="center_vertical" android:padding="12dp">
+        <ImageView android:layout_width="34dp" android:layout_height="34dp" android:padding="9dp" android:background="@drawable/widget_play" android:src="@drawable/ic_play" android:tint="#FFFFFF" android:importantForAccessibility="no" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:layout_marginEnd="8dp" android:orientation="vertical">
+            <TextView android:id="@+id/widget_series" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#FFFFFF" android:fontFamily="sans-serif-black" android:textSize="15sp" android:maxLines="1" android:ellipsize="end" />
+            <TextView android:id="@+id/widget_episode" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="1dp" android:textColor="#D9FFFFFF" android:fontFamily="sans-serif-medium" android:textSize="12sp" android:maxLines="1" />
+        </LinearLayout>
+        <TextView android:id="@+id/widget_seen" android:layout_width="wrap_content" android:layout_height="36dp" android:gravity="center" android:paddingStart="14dp" android:paddingEnd="14dp" android:background="@drawable/widget_action_background" android:text="@string/widget_seen_label" android:fontFamily="sans-serif-black" android:textColor="#FFFFFF" android:textSize="13sp" />
+        <LinearLayout android:id="@+id/widget_reactions" android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone">
+            <TextView android:id="@+id/widget_like" android:layout_width="40dp" android:layout_height="36dp" android:layout_marginEnd="6dp" android:gravity="center" android:background="@drawable/widget_refresh_background" android:text="👍" android:textSize="16sp" android:contentDescription="@string/widget_like_label" />
+            <TextView android:id="@+id/widget_dislike" android:layout_width="40dp" android:layout_height="36dp" android:gravity="center" android:background="@drawable/widget_refresh_background" android:text="👎" android:textSize="16sp" android:contentDescription="@string/widget_dislike_label" />
+        </LinearLayout>
     </LinearLayout>
-</LinearLayout>
+</FrameLayout>

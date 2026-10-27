@@ -1,7 +1,7 @@
 <resources>
-    <string name="widget_episodes_description">Prossimi episodi delle tue serie, con il comando per segnarli come visti.</string>
-    <string name="widget_episodes_label">Prossimi episodi</string>
-    <string name="widget_seen_label">✓ Segna come visto</string>
+    <string name="widget_episodes_description">Le serie che stai guardando con il prossimo episodio: segnalo come visto o apri la scheda.</string>
+    <string name="widget_episodes_label">In corso</string>
+    <string name="widget_seen_label">✓ Visto</string>
     <string name="widget_like_label">Mi piace</string>
     <string name="widget_dislike_label">Non mi piace</string>
     <string name="widget_refresh_label">Aggiorna widget</string>
