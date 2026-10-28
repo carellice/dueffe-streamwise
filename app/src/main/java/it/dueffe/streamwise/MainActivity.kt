@@ -894,6 +894,79 @@ private fun AiResultCard(media: Models.Media, reason: String, modifier: Modifier
     }
 }
 
+/** "Simili secondo l'IA" in a title's detail: asks Workers AI for related films and series on demand. */
+@Composable
+private fun AiSimilarSection(media: Models.Media, api: TmdbApi, store: LibraryStore, onOpen: (Models.Media) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var configured by remember { mutableStateOf(AiAdvisor.configured(context)) }
+    var setupVisible by remember(media.id) { mutableStateOf(false) }
+    var loading by remember(media.id) { mutableStateOf(false) }
+    var error by remember(media.id) { mutableStateOf<String?>(null) }
+    var results by remember(media.id) { mutableStateOf<List<Pair<Models.Media, String>>>(emptyList()) }
+    val suggested = remember(media.id) { mutableStateListOf<String>() }
+    lateinit var ask: () -> Unit
+    ask = {
+        if (!AiAdvisor.configured(context)) { configured = false; setupVisible = true }
+        else if (!loading) scope.launch {
+            loading = true
+            error = null
+            val entries = store.all().toList()
+            val liked = entries.filter { it.liked == true }.map { it.media.title }.take(15)
+            // Titles already proposed for this one are excluded, so "Altri simili" brings new ones.
+            val exclude = (entries.filter { it.state == "watched" }.map { it.media.title } + suggested).takeLast(60)
+            val year = media.year.takeIf { it.isNotEmpty() && it.all(Char::isDigit) }.orEmpty()
+            val picks = withContext(Dispatchers.IO) {
+                runCatching { AiAdvisor.similar(context, media.originalTitle.ifBlank { media.title }, year, media.mediaType, media.genres.toList(), liked, exclude) }
+            }
+            val resolved = withContext(Dispatchers.IO) {
+                coroutineScope { picks.getOrDefault(emptyList()).map { pick -> async { resolveAiPick(api, pick)?.let { it to pick.reason } } }.awaitAll() }
+            }.filterNotNull().filter { (candidate, _) -> candidate.id != media.id && results.none { it.first.id == candidate.id } }.distinctBy { it.first.id }
+            picks.getOrNull()?.let { list -> suggested.addAll(list.map { it.title }) }
+            results = results + resolved
+            error = when {
+                picks.isFailure -> (picks.exceptionOrNull() as? AiException)?.message ?: "Non riesco a contattare l'IA. Controlla la connessione e riprova."
+                resolved.isEmpty() -> "Nessun nuovo titolo simile trovato questa volta. Riprova."
+                else -> null
+            }
+            loading = false
+        }
+    }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp).animateContentSize(tween(320, easing = Sw.Emphasized)), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Simili secondo l'IA", style = MaterialTheme.typography.titleLarge, color = Ink)
+        Text("Film e serie che condividono atmosfera, temi e tono di “${media.title}”, con il motivo di ogni scelta.", color = Muted, fontSize = 14.sp, lineHeight = 20.sp)
+        results.forEachIndexed { index, (item, reason) ->
+            key(item.id) { AiResultCard(item, reason, Modifier.reveal(delayMillis = index % 8 * 70, distance = 24.dp)) { onOpen(item) } }
+        }
+        if (loading) repeat(2) {
+            Row(Modifier.fillMaxWidth().glass(RoundedCornerShape(22.dp)).padding(10.dp)) {
+                LoadingSkeleton(Modifier.size(84.dp, 124.dp).clip(RoundedCornerShape(14.dp)))
+                Column(Modifier.weight(1f).padding(start = 14.dp, top = 6.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    LoadingSkeleton(Modifier.fillMaxWidth(.4f).height(10.dp).clip(CircleShape))
+                    LoadingSkeleton(Modifier.fillMaxWidth(.8f).height(16.dp).clip(CircleShape))
+                    LoadingSkeleton(Modifier.fillMaxWidth().height(12.dp).clip(CircleShape))
+                }
+            }
+        }
+        error?.let { Text(it, color = DislikeRed, fontSize = 14.sp, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
+        if (setupVisible && !configured) AiSetupCard(onConfiguredChange = { ready -> configured = ready; if (ready) { setupVisible = false; ask() } })
+        else Button(
+            onClick = ask,
+            enabled = !loading,
+            modifier = Modifier.fillMaxWidth().height(54.dp)
+                .shadow(12.dp, CircleShape, ambientColor = AiViolet, spotColor = AiViolet)
+                .background(Brush.linearGradient(listOf(AiViolet, Sw.Red)), CircleShape),
+            shape = CircleShape,
+            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White, disabledContainerColor = Color.Transparent, disabledContentColor = Color.White)
+        ) {
+            if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+            else Icon(painterResource(R.drawable.ic_sparkles), null, Modifier.size(21.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(if (loading) "Cerco titoli simili…" else if (results.isEmpty()) "Trova simili con l'IA" else "Altri simili", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        }
+    }
+}
+
 private fun greeting(): String = when (java.time.LocalTime.now(TvGuideRepository.ROME).hour) {
     in 5..12 -> "Buongiorno"
     in 13..17 -> "Buon pomeriggio"
@@ -2640,6 +2713,7 @@ private fun DetailScreen(
                 item { ProviderGroups(media) }
                 if (saga.isNotEmpty()) item { MediaRail("Della stessa saga", saga, store, onOpen, onAction, contentVersion = refreshVersion, spacious = true) }
                 if (related.isNotEmpty()) item { MediaRail("Potrebbe piacerti", related, store, onOpen, onAction, contentVersion = refreshVersion, loadMore = if (relatedHasMore) loadMoreRelated else null, loadingMore = relatedLoadingMore, spacious = true) }
+                item(key = "ai-similar") { AiSimilarSection(media, api, store, onOpen) }
             }
         }
         val density = androidx.compose.ui.platform.LocalDensity.current

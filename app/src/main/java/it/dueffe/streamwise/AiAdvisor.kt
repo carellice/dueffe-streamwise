@@ -60,6 +60,35 @@ internal object AiAdvisor {
         return parseItems(run(accountId(context), apiToken(context), messages, 900, 0.8))
     }
 
+    /** Blocking call: films and series similar to one title, motivated by what they share with it. */
+    fun similar(
+        context: Context,
+        title: String,
+        year: String,
+        type: String,
+        genres: List<String>,
+        liked: List<String>,
+        exclude: List<String>,
+        count: Int = 8
+    ): List<AiPick> {
+        if (!configured(context)) throw AiException("Configura l'IA nelle Impostazioni con il tuo account Cloudflare.")
+        val kind = if (type == "tv") "serie TV" else "film"
+        val source = "\"$title\"" + (if (year.isNotBlank()) " ($kind, $year)" else " ($kind)") + (if (genres.isNotEmpty()) ", genere ${genres.joinToString(", ")}" else "")
+        val prompt = listOf(
+            "Consiglia ${count.coerceIn(3, 10)} titoli tra film e serie TV simili a $source per atmosfera, temi, tono e stile, non solo per genere.",
+            if (liked.isNotEmpty()) "Per variare la scelta, tieni conto che alla persona sono piaciuti anche: ${liked.joinToString("; ")}." else "",
+            "Non proporre \"$title\" né suoi sequel, prequel o spin-off." + (if (exclude.isNotEmpty()) " Evita anche questi titoli, li conosce già: ${exclude.joinToString("; ")}." else ""),
+            "Proponi titoli reali e noti, preferibilmente disponibili in Italia, vari tra loro e non scontati.",
+            "Per ogni titolo indica il titolo originale, l'anno di uscita e il tipo (movie o tv).",
+            "La motivazione (reason) deve essere una frase completa e naturale in italiano, tra 80 e 140 caratteri, che spieghi cosa ha in comune con \"$title\".",
+            "Rispondi solo con JSON nel formato {\"items\":[{\"title\":\"...\",\"year\":2020,\"type\":\"movie\",\"reason\":\"...\"}]}."
+        ).filter { it.isNotEmpty() }.joinToString("\n")
+        val messages = JSONArray()
+            .put(JSONObject().put("role", "system").put("content", "Sei un esperto di cinema e serie TV che dà consigli personali, concreti e motivati in italiano. Rispondi sempre e solo con JSON valido."))
+            .put(JSONObject().put("role", "user").put("content", prompt))
+        return parseItems(run(accountId(context), apiToken(context), messages, 900, 0.7))
+    }
+
     private fun prompt(type: String, request: String, liked: List<String>, disliked: List<String>, watching: List<String>, exclude: List<String>, count: Int): String {
         val kind = when (type) { "movie" -> "solo film"; "tv" -> "solo serie TV"; else -> "film o serie TV" }
         return listOf(
