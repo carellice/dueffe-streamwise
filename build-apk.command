@@ -47,7 +47,7 @@ if [[ -z "${TMDB_API_KEY:-}" ]]; then
   fi
 fi
 if [[ -n "${TMDB_API_KEY:-}" ]]; then
-  # Aggiorna solo la chiave TMDB: le altre impostazioni locali (es. ai.endpoint, ai.key) restano.
+  # Aggiorna solo la chiave TMDB: le altre impostazioni locali restano.
   OTHER_LINES="$(grep -v '^tmdb\.api\.key=' local.properties 2>/dev/null || true)"
   { print "tmdb.api.key=$TMDB_API_KEY"; [[ -n "$OTHER_LINES" ]] && print -r -- "$OTHER_LINES"; } > local.properties
 fi

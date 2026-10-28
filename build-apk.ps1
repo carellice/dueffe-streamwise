@@ -1,4 +1,4 @@
-﻿# Versione Windows di build-apk.command: compila l'APK firmato, lo pubblica su GitHub
+# Versione Windows di build-apk.command: compila l'APK firmato, lo pubblica su GitHub
 # e rimuove le release StreamWise precedenti.
 #   .\build-apk.ps1            incrementa la patch (1.0.0 -> 1.0.1)
 #   .\build-apk.ps1 1.2.0      usa la versione indicata
@@ -60,7 +60,7 @@ if (-not $env:TMDB_API_KEY) {
   $env:TMDB_API_KEY = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
   if (-not $env:TMDB_API_KEY) { Fail "La chiave TMDB è necessaria. Inseriscila in local.properties e riprova." }
 }
-# Aggiorna solo la chiave TMDB: le altre impostazioni locali (es. ai.endpoint, ai.key) restano.
+# Aggiorna solo la chiave TMDB: le altre impostazioni locali restano.
 $otherLines = if (Test-Path local.properties) { @(Get-Content local.properties | Where-Object { $_ -notlike 'tmdb.api.key=*' -and $_ -ne '' }) } else { @() }
 [IO.File]::WriteAllText("$ProjectDir\local.properties", ((@("tmdb.api.key=$($env:TMDB_API_KEY)") + $otherLines) -join "`n") + "`n", $utf8)
 

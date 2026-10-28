@@ -10,8 +10,3 @@ dist/
 
 .kotlin/
 .DS_Store
-
-# Cloudflare Worker
-ai-worker/.wrangler/
-ai-worker/node_modules/
-ai-worker/.dev.vars

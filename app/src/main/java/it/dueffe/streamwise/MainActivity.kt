@@ -718,6 +718,8 @@ private fun resolveAiPick(api: TmdbApi, pick: AiPick): Models.Media? = runCatchi
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AiScreen(api: TmdbApi, store: LibraryStore, onDismiss: () -> Unit, onOpen: (Models.Media) -> Unit) {
+    val context = LocalContext.current
+    var configured by remember { mutableStateOf(AiAdvisor.configured(context)) }
     var request by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     var type by remember { mutableStateOf("all") }
     var loading by remember { mutableStateOf(false) }
@@ -741,14 +743,14 @@ private fun AiScreen(api: TmdbApi, store: LibraryStore, onDismiss: () -> Unit, o
             scope.launch {
                 // Titles already proposed in this session are excluded, so "Altri consigli" brings new ones.
                 val exclude = (entries.map { it.media.title } + suggested).takeLast(80)
-                val picks = withContext(Dispatchers.IO) { runCatching { AiAdvisor.recommend(type, request.trim(), liked, disliked, watching, exclude) } }
+                val picks = withContext(Dispatchers.IO) { runCatching { AiAdvisor.recommend(context, type, request.trim(), liked, disliked, watching, exclude) } }
                 val resolved = withContext(Dispatchers.IO) {
                     coroutineScope { picks.getOrDefault(emptyList()).map { pick -> async { resolveAiPick(api, pick)?.let { it to pick.reason } } }.awaitAll() }
                 }.filterNotNull().filter { (media, _) -> media.id !in known }.distinctBy { it.first.id }
                 picks.getOrNull()?.let { list -> suggested.addAll(list.map { it.title }) }
                 results = resolved
                 error = when {
-                    picks.isFailure -> "Non riesco a contattare l'IA. Controlla la connessione e riprova."
+                    picks.isFailure -> (picks.exceptionOrNull() as? AiException)?.message ?: "Non riesco a contattare l'IA. Controlla la connessione e riprova."
                     resolved.isEmpty() -> "Nessun titolo adatto questa volta. Prova a riformulare la richiesta."
                     else -> null
                 }
@@ -781,6 +783,10 @@ private fun AiScreen(api: TmdbApi, store: LibraryStore, onDismiss: () -> Unit, o
                         else "Consigli basati sui ${liked.size} titoli che ti sono piaciuti e su ciò che mi chiedi.",
                         color = Muted, fontSize = 15.sp, lineHeight = 21.sp
                     )
+                }
+                if (!configured) {
+                    item { AiSetupCard(onConfiguredChange = { configured = it }) }
+                    return@LazyColumn
                 }
                 item {
                     Box(
@@ -958,7 +964,7 @@ private fun HomeScreen(
             }
         }
         item { AdvisorCards(progress.isNotEmpty() || saved.isNotEmpty(), Modifier.reveal(90), onAdvisor) }
-        if (AiAdvisor.available) item { AiAskCard(Modifier.padding(horizontal = 20.dp).reveal(120), onAskAi) }
+        item { AiAskCard(Modifier.padding(horizontal = 20.dp).reveal(120), onAskAi) }
         if (holiday != null && holidayMedia.any { it.id !in hidden }) item {
             HolidayRail(holiday, holidayMedia.filter { it.id !in hidden }, store, onOpen, onAction, onSeeAll = { onDiscover() }, onLoadMore = null, loadingMore = false)
         }
@@ -4240,6 +4246,129 @@ private fun ChangelogEntry(version: String, title: String, body: String) {
     }
 }
 
+private const val CLOUDFLARE_SIGN_UP = "https://dash.cloudflare.com/sign-up"
+private const val CLOUDFLARE_WORKERS_AI = "https://dash.cloudflare.com/?to=/:account/ai/workers-ai"
+private const val CLOUDFLARE_API_TOKENS = "https://dash.cloudflare.com/profile/api-tokens"
+
+/** Guide and form to connect the user's own Cloudflare Workers AI account (used in Settings and in "Chiedi all'IA"). */
+@Composable
+private fun AiSetupCard(modifier: Modifier = Modifier, onConfiguredChange: (Boolean) -> Unit = {}) {
+    val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
+    val scope = rememberCoroutineScope()
+    var configured by remember { mutableStateOf(AiAdvisor.configured(context)) }
+    var accountId by remember { mutableStateOf(AiAdvisor.accountId(context)) }
+    var token by remember { mutableStateOf(AiAdvisor.apiToken(context)) }
+    var showToken by remember { mutableStateOf(false) }
+    var showGuide by remember { mutableStateOf(!configured) }
+    var checking by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    val steps = listOf(
+        Triple("Crea un account gratuito su Cloudflare, oppure accedi se ce l'hai già.", "Apri Cloudflare", CLOUDFLARE_SIGN_UP),
+        Triple("Apri Workers AI (menu AI › Workers AI) e tocca “Use REST API”.", "Apri Workers AI", CLOUDFLARE_WORKERS_AI),
+        Triple("Copia l'Account ID (32 caratteri) e incollalo qui sotto.", null, null),
+        Triple("Tocca “Create a Workers AI API Token”, poi “Create API Token” e copia il token: Cloudflare lo mostra una sola volta. In alternativa: Profilo › API Tokens › Create Token › modello “Workers AI”.", "Apri API Tokens", CLOUDFLARE_API_TOKENS),
+        Triple("Incolla il token qui sotto e tocca “Verifica e salva”.", null, null)
+    )
+    Surface(modifier.fillMaxWidth(), color = Panel, shape = RoundedCornerShape(24.dp), border = androidx.compose.foundation.BorderStroke(1.dp, if (configured) AiViolet.copy(alpha = .5f) else MaterialTheme.colorScheme.outlineVariant)) {
+        Column(Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(painterResource(R.drawable.ic_sparkles), null, tint = AiViolet, modifier = Modifier.size(22.dp))
+                Text("Intelligenza artificiale", style = MaterialTheme.typography.titleLarge, color = Ink, modifier = Modifier.weight(1f).padding(start = 10.dp))
+                Surface(color = if (configured) AiViolet.copy(alpha = .2f) else Raised, shape = CircleShape) {
+                    Text(if (configured) "Attiva" else "Da configurare", color = if (configured) Color.White else Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+                }
+            }
+            Text(
+                "“Chiedi all'IA” usa Workers AI di Cloudflare con il tuo account personale. Il piano gratuito include una quota giornaliera di richieste, più che sufficiente per l'uso quotidiano, senza carta di credito.",
+                color = Muted, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 8.dp)
+            )
+            Text(
+                if (showGuide) "Nascondi la guida" else "Come ottenere Account ID e token",
+                color = AiViolet, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                modifier = Modifier.padding(top = 10.dp).clip(CircleShape).clickable { showGuide = !showGuide }.padding(vertical = 6.dp)
+            )
+            AnimatedVisibility(showGuide) {
+                Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    steps.forEachIndexed { index, (text, label, url) ->
+                        Row {
+                            Box(Modifier.size(24.dp).background(AiViolet.copy(alpha = .2f), CircleShape), contentAlignment = Alignment.Center) {
+                                Text("${index + 1}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                Text(text, color = Ink, fontSize = 14.sp, lineHeight = 19.sp)
+                                if (label != null && url != null) Text(
+                                    "$label ›", color = AiViolet, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(top = 4.dp).clip(CircleShape).clickable { runCatching { uriHandler.openUri(url) } }.padding(vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            OutlinedTextField(
+                value = accountId,
+                onValueChange = { accountId = it.trim(); message = null },
+                label = { Text("Account ID") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, imeAction = ImeAction.Next),
+                modifier = Modifier.fillMaxWidth().padding(top = 14.dp)
+            )
+            OutlinedTextField(
+                value = token,
+                onValueChange = { token = it.trim(); message = null },
+                label = { Text("Token API Workers AI") },
+                singleLine = true,
+                visualTransformation = if (showToken) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = androidx.compose.ui.text.input.KeyboardType.Password, imeAction = ImeAction.Done),
+                trailingIcon = { TextButton({ showToken = !showToken }) { Text(if (showToken) "Nascondi" else "Mostra", fontSize = 12.sp) } },
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+            )
+            message?.let { (text, ok) -> Text(text, color = if (ok) AiViolet else DislikeRed, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 10.dp)) }
+            Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (configured) OutlinedButton(
+                    onClick = {
+                        AiAdvisor.clear(context)
+                        accountId = ""; token = ""; configured = false; showGuide = true
+                        message = "Credenziali rimosse da questo telefono." to true
+                        onConfiguredChange(false)
+                    },
+                    modifier = Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(18.dp)
+                ) { Text("Rimuovi") }
+                Button(
+                    onClick = {
+                        if (!checking) scope.launch {
+                            checking = true
+                            message = null
+                            val result = withContext(Dispatchers.IO) { runCatching { AiAdvisor.verify(accountId, token) } }
+                            if (result.isSuccess) {
+                                AiAdvisor.save(context, accountId, token)
+                                configured = true; showGuide = false
+                                message = "Fatto! L'IA è collegata al tuo account Cloudflare." to true
+                                onConfiguredChange(true)
+                            } else {
+                                message = ((result.exceptionOrNull() as? AiException)?.message ?: "Verifica non riuscita. Riprova.") to false
+                            }
+                            checking = false
+                        }
+                    },
+                    enabled = accountId.isNotBlank() && token.isNotBlank() && !checking,
+                    modifier = Modifier.weight(1f).height(50.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AiViolet, contentColor = Color.White)
+                ) {
+                    if (checking) CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                    else Text("Verifica e salva", fontWeight = FontWeight.Bold)
+                }
+            }
+            Text(
+                "Account ID e token restano solo su questo telefono, vengono inviati unicamente a Cloudflare e non finiscono nei backup JSON.",
+                color = Muted, fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(top = 12.dp)
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsScreen(
@@ -4318,6 +4447,7 @@ private fun SettingsScreen(
                         }
                     }
                 }
+                item { AiSetupCard() }
                 item {
                     var hideShows by remember { mutableStateOf(store.hideShowCredits()) }
                     Surface(color = Panel, shape = RoundedCornerShape(24.dp), border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
