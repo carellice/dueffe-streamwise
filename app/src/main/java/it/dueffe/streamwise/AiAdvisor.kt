@@ -10,6 +10,9 @@ import org.json.JSONObject
 /** A title suggested by the AI, before it is matched to a TMDB entry. */
 internal data class AiPick(val title: String, val year: Int?, val type: String, val reason: String)
 
+/** Candidates for a title the user cannot name, plus a question to narrow them down. */
+internal data class AiIdentification(val picks: List<AiPick>, val question: String, val options: List<String>)
+
 /** A Workers AI failure with a message ready to show to the user. */
 internal class AiException(message: String) : Exception(message)
 
@@ -89,6 +92,34 @@ internal object AiAdvisor {
         return parseItems(run(accountId(context), apiToken(context), messages, 900, 0.7))
     }
 
+    /**
+     * Blocking call: guesses a title the user cannot name from their answers ([clues] as question to answer).
+     * Besides the candidates it returns a follow-up question, used when none of them is the right one.
+     */
+    fun identify(context: Context, clues: List<Pair<String, String>>, exclude: List<String>): AiIdentification {
+        if (!configured(context)) throw AiException("Configura l'IA nelle Impostazioni con il tuo account Cloudflare.")
+        val prompt = listOf(
+            "Una persona cerca un film o una serie TV di cui non ricorda il nome. Ecco cosa ricorda, domanda per domanda:",
+            clues.joinToString("\n") { (question, answer) -> "- $question: ${answer.take(400)}" },
+            if (exclude.isNotEmpty()) "Ha già escluso questi titoli, non riproporli: ${exclude.joinToString("; ")}." else "",
+            "Individua da 1 a 5 titoli reali che corrispondono meglio agli indizi, dal più probabile al meno probabile. Considera che i ricordi possono essere imprecisi.",
+            "Per ogni titolo indica il titolo originale, l'anno di uscita, il tipo (movie o tv) e, nel campo reason, una frase in italiano di massimo 140 caratteri che spieghi quali indizi corrispondono.",
+            "Aggiungi una domanda semplice in italiano (question) che aiuterebbe a distinguere tra i candidati o a trovare quello giusto se nessuno lo è, con da 2 a 4 risposte brevi possibili (options).",
+            "Rispondi solo con JSON nel formato {\"items\":[{\"title\":\"...\",\"year\":2020,\"type\":\"movie\",\"reason\":\"...\"}],\"question\":\"...\",\"options\":[\"...\",\"...\"]}."
+        ).filter { it.isNotEmpty() }.joinToString("\n")
+        val messages = JSONArray()
+            .put(JSONObject().put("role", "system").put("content", "Sei un esperto di cinema e serie TV bravissimo a riconoscere titoli da descrizioni vaghe. Rispondi sempre e solo con JSON valido."))
+            .put(JSONObject().put("role", "user").put("content", prompt))
+        val response = run(accountId(context), apiToken(context), messages, 900, 0.3)
+        val data = toJson(response)
+        val options = data?.optJSONArray("options")
+        return AiIdentification(
+            parseItems(response).take(5),
+            data?.optString("question").orEmpty().trim().take(160),
+            (0 until (options?.length() ?: 0)).map { options!!.optString(it).trim().take(60) }.filter { it.isNotEmpty() }.take(4)
+        )
+    }
+
     private fun prompt(type: String, request: String, liked: List<String>, disliked: List<String>, watching: List<String>, exclude: List<String>, count: Int): String {
         val kind = when (type) { "movie" -> "solo film"; "tv" -> "solo serie TV"; else -> "film o serie TV" }
         return listOf(
@@ -136,18 +167,18 @@ internal object AiAdvisor {
         }
     }
 
-    private fun parseItems(response: Any?): List<AiPick> {
-        val data = when (response) {
-            is JSONObject -> response
-            is String -> {
-                val start = response.indexOf('{')
-                val end = response.lastIndexOf('}')
-                if (start < 0 || end <= start) return emptyList()
-                runCatching { JSONObject(response.substring(start, end + 1)) }.getOrNull() ?: return emptyList()
-            }
-            else -> return emptyList()
+    private fun toJson(response: Any?): JSONObject? = when (response) {
+        is JSONObject -> response
+        is String -> {
+            val start = response.indexOf('{')
+            val end = response.lastIndexOf('}')
+            if (start < 0 || end <= start) null else runCatching { JSONObject(response.substring(start, end + 1)) }.getOrNull()
         }
-        val items = data.optJSONArray("items") ?: return emptyList()
+        else -> null
+    }
+
+    private fun parseItems(response: Any?): List<AiPick> {
+        val items = toJson(response)?.optJSONArray("items") ?: return emptyList()
         return (0 until items.length()).mapNotNull { index ->
             val item = items.optJSONObject(index) ?: return@mapNotNull null
             val title = item.optString("title").trim().take(120)

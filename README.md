@@ -64,6 +64,7 @@ STREAMWISE_AVD="Nome_del_simulatore" ./avvia-simulatore.command
 - “Segui” per attori e registi: dalla pagina della filmografia si ricevono notifiche quando a TMDB viene aggiunto un loro nuovo film o serie (recente o in arrivo). Le persone seguite compaiono in Home in “Persone che segui” e sono incluse nel backup.
 - “Chiedi all’IA”: consigli personalizzati generati con Cloudflare Workers AI usando l’account di ciascun utente. Account ID e token API si inseriscono in Impostazioni › Intelligenza artificiale, dove una guida passo passo spiega come ottenerli gratis; restano solo sul telefono e non sono inclusi nel backup.
 - “Simili secondo l’IA”: in fondo alla scheda di ogni film o serie, un pulsante chiede all’IA film e serie simili per atmosfera, temi e tono, ciascuno con il motivo della scelta; “Altri simili” ne propone di nuovi. Se l’IA non è ancora configurata, compare la stessa guida delle Impostazioni.
+- “Ritrova un titolo”: in Home, sotto “Chiedi all’IA”, una procedura guidata aiuta a trovare un film o una serie di cui non si ricorda il nome. Sei domande semplici (film o serie, epoca, genere, paese, trama, altri dettagli), poi l’IA propone fino a 5 candidati con gli indizi che corrispondono; se nessuno è giusto, fa una domanda in più per restringere la ricerca.
 - Dettagli, cast, titoli correlati, streaming, noleggio e acquisto disponibili in Italia.
 - Filtri per piattaforma e genere.
 - Gestione di episodi e stagioni, avanzamento automatico e riapertura delle serie.

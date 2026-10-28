@@ -417,6 +417,8 @@ private fun StreamWiseApp(
     var settingsOrigin by remember { mutableStateOf<Rect?>(null) }
     var aiOpen by remember { mutableStateOf(false) }
     var aiOrigin by remember { mutableStateOf<Rect?>(null) }
+    var findTitleOpen by remember { mutableStateOf(false) }
+    var findTitleOrigin by remember { mutableStateOf<Rect?>(null) }
     var filters by remember { mutableStateOf(false) }
     var filtersOrigin by remember { mutableStateOf<Rect?>(null) }
     var selectedSaga by remember { mutableStateOf<SagaCollection?>(null) }
@@ -488,6 +490,7 @@ private fun StreamWiseApp(
                             onSettings = { bounds -> settingsOrigin = bounds; settings = true },
                             onAdvisor = { fromLibrary -> advisorFromLibrary = fromLibrary; advisor = true },
                             onAskAi = { bounds -> aiOrigin = bounds; aiOpen = true },
+                            onFindTitle = { bounds -> findTitleOrigin = bounds; findTitleOpen = true },
                             onOpenLibrary = { section -> librarySection = section; tab = Tab.LIBRARY },
                             onDiscover = { tab = Tab.DISCOVER },
                             onOpenGuide = { tab = Tab.GUIDE },
@@ -531,6 +534,9 @@ private fun StreamWiseApp(
             }
             if (aiOpen) ExpandingPage(aiOrigin, onClosed = { aiOpen = false }, sourceCorner = 26.dp, sourceArt = { AiCardArt(Modifier.fillMaxSize()) }) { close ->
                 AiScreen(api, store, onDismiss = close, onOpen = openFromCatalog)
+            }
+            if (findTitleOpen) ExpandingPage(findTitleOrigin, onClosed = { findTitleOpen = false }, sourceCorner = 26.dp, sourceArt = { AiCardArt(Modifier.fillMaxSize(), title = FIND_TITLE, subtitle = FIND_TITLE_SUBTITLE, icon = R.drawable.ic_search) }) { close ->
+                FindTitleScreen(api, onDismiss = close, onOpen = openFromCatalog)
             }
             if (settings) ExpandingPage(settingsOrigin, onClosed = { settings = false }) { close ->
                 SettingsScreen(store, onDismiss = close, onChanged = { refresh++ }, onExportBackup = onExportBackup, onImportBackup = onImportBackup, onReplayOnboarding = onReplayOnboarding)
@@ -673,7 +679,12 @@ private val AiViolet = Color(0xFFA57BFF)
 
 /** Look of the "Chiedi all'IA" card; also drawn by the page transition that grows out of it. */
 @Composable
-private fun AiCardArt(modifier: Modifier = Modifier) {
+private fun AiCardArt(
+    modifier: Modifier = Modifier,
+    title: String = "Chiedi all'IA",
+    subtitle: String = "Dimmi cosa ti va: ti consiglio titoli su misura dei tuoi gusti",
+    icon: Int = R.drawable.ic_sparkles
+) {
     val shape = RoundedCornerShape(26.dp)
     Row(
         modifier.clip(shape)
@@ -683,20 +694,23 @@ private fun AiCardArt(modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(Modifier.size(46.dp).clip(CircleShape).background(Brush.linearGradient(listOf(AiViolet, Sw.Red))), contentAlignment = Alignment.Center) {
-            Icon(painterResource(R.drawable.ic_sparkles), null, tint = Color.White, modifier = Modifier.size(23.dp))
+            Icon(painterResource(icon), null, tint = Color.White, modifier = Modifier.size(23.dp))
         }
         Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Chiedi all'IA", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                Text(title, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
                 Box(Modifier.padding(start = 8.dp).clip(CircleShape).background(AiViolet.copy(alpha = .22f)).padding(horizontal = 7.dp, vertical = 2.dp)) {
                     Text("NUOVO", color = AiViolet, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
                 }
             }
-            Text("Dimmi cosa ti va: ti consiglio titoli su misura dei tuoi gusti", color = Color.White.copy(alpha = .7f), fontSize = 13.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 2.dp))
+            Text(subtitle, color = Color.White.copy(alpha = .7f), fontSize = 13.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 2.dp))
         }
         Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Color.White.copy(alpha = .7f))
     }
 }
+
+private const val FIND_TITLE = "Ritrova un titolo"
+private const val FIND_TITLE_SUBTITLE = "Non ricordi il nome? Rispondi a qualche domanda e lo cerco io"
 
 @Composable
 private fun AiAskCard(modifier: Modifier, onAsk: (Rect?) -> Unit) {
@@ -708,6 +722,269 @@ private fun AiAskCard(modifier: Modifier, onAsk: (Rect?) -> Unit) {
             .pressScale(interaction, .97f)
             .clickable(interaction, indication = null) { onAsk(bounds) }
     )
+}
+
+@Composable
+private fun FindTitleCard(modifier: Modifier, onOpen: (Rect?) -> Unit) {
+    var bounds by remember { mutableStateOf<Rect?>(null) }
+    val interaction = remember { MutableInteractionSource() }
+    AiCardArt(
+        modifier.fillMaxWidth()
+            .onGloballyPositioned { bounds = it.boundsInRoot() }
+            .pressScale(interaction, .97f)
+            .clickable(interaction, indication = null) { onOpen(bounds) },
+        title = FIND_TITLE, subtitle = FIND_TITLE_SUBTITLE, icon = R.drawable.ic_search
+    )
+}
+
+/** One question of the "Ritrova un titolo" guide; "Non ricordo" answers are not sent to the AI. */
+private class FindTitleStep(val question: String, val hint: String, val options: List<String> = emptyList(), val multiple: Boolean = false, val placeholder: String? = null, val required: Boolean = false)
+
+private const val DONT_REMEMBER = "Non ricordo"
+
+private val FIND_TITLE_STEPS = listOf(
+    FindTitleStep("È un film o una serie TV?", "Partiamo dalle basi.", listOf("Film", "Serie TV", DONT_REMEMBER)),
+    FindTitleStep("Più o meno di quando è?", "Va bene anche un'idea approssimativa.", listOf("Recente (dal 2020)", "Anni 2010", "Anni 2000", "Anni '90", "Prima del 1990", DONT_REMEMBER)),
+    FindTitleStep("Che genere era?", "Puoi sceglierne più di uno.", listOf("Azione", "Commedia", "Drammatico", "Thriller", "Horror", "Fantascienza", "Fantasy", "Animazione", "Romantico", "Crime", "Avventura", "Guerra", DONT_REMEMBER), multiple = true),
+    FindTitleStep("Da dove veniva?", "Il paese o la lingua originale.", listOf("Italia", "Stati Uniti", "Regno Unito", "Altro paese europeo", "Asia", DONT_REMEMBER)),
+    FindTitleStep("Cosa ricordi della trama?", "Racconta con parole tue, anche pochi dettagli aiutano.", placeholder = "Es. un uomo rivive sempre la stessa giornata e cerca di uscirne…", required = true),
+    FindTitleStep("Qualche altro dettaglio?", "Facoltativo: attori, una scena, un luogo, il finale, la locandina.", placeholder = "Es. c'era un attore biondo, una scena sotto la pioggia…")
+)
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FindTitleScreen(api: TmdbApi, onDismiss: () -> Unit, onOpen: (Models.Media) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    var configured by remember { mutableStateOf(AiAdvisor.configured(context)) }
+    var step by remember { mutableIntStateOf(0) }
+    val selections = remember { mutableStateMapOf<Int, Set<String>>() }
+    val texts = remember { mutableStateMapOf<Int, String>() }
+    // Answers to the AI's own follow-up questions, added after each "Non è nessuno di questi".
+    val followUps = remember { mutableStateListOf<Pair<String, String>>() }
+    val excluded = remember { mutableStateListOf<String>() }
+    var results by remember { mutableStateOf<List<Pair<Models.Media, String>>>(emptyList()) }
+    var question by remember { mutableStateOf("") }
+    var options by remember { mutableStateOf<List<String>>(emptyList()) }
+    var followText by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val done = step >= FIND_TITLE_STEPS.size
+    fun clues(): List<Pair<String, String>> = FIND_TITLE_STEPS.mapIndexedNotNull { index, item ->
+        val answer = (selections[index].orEmpty().filter { it != DONT_REMEMBER } + listOfNotNull(texts[index]?.trim()?.takeIf { it.isNotEmpty() })).joinToString(", ")
+        if (answer.isEmpty()) null else item.question to answer
+    } + followUps
+    fun search() {
+        if (loading) return
+        focusManager.clearFocus(force = true)
+        loading = true
+        error = null
+        scope.launch {
+            val found = withContext(Dispatchers.IO) { runCatching { AiAdvisor.identify(context, clues(), excluded.toList()) } }
+            val identification = found.getOrNull()
+            val resolved = withContext(Dispatchers.IO) {
+                coroutineScope { identification?.picks.orEmpty().map { pick -> async { resolveAiPick(api, pick)?.let { it to pick.reason } } }.awaitAll() }
+            }.filterNotNull().distinctBy { it.first.id }
+            identification?.let { excluded.addAll(it.picks.map { pick -> pick.title }) }
+            results = resolved
+            question = identification?.question.orEmpty()
+            options = identification?.options.orEmpty()
+            followText = ""
+            error = when {
+                found.isFailure -> (found.exceptionOrNull() as? AiException)?.message ?: "Non riesco a contattare l'IA. Controlla la connessione e riprova."
+                resolved.isEmpty() -> "Non ho trovato titoli adatti. Rispondi alla domanda qui sotto o aggiungi altri dettagli."
+                else -> null
+            }
+            loading = false
+        }
+    }
+    fun answerFollowUp(answer: String) {
+        if (answer.isBlank()) return
+        followUps.add((question.ifBlank { "Altro dettaglio" }) to answer.trim())
+        search()
+    }
+    fun restart() {
+        step = 0; selections.clear(); texts.clear(); followUps.clear(); excluded.clear()
+        results = emptyList(); question = ""; options = emptyList(); error = null
+    }
+    BackHandler { if (step > 0 && !done) step-- else if (done && !loading) step = FIND_TITLE_STEPS.size - 1 else onDismiss() }
+    Surface(Modifier.fillMaxSize(), color = Night) {
+        Box(Modifier.fillMaxSize()) {
+            Box(Modifier.align(Alignment.TopEnd).offset(x = 90.dp, y = (-90).dp).size(340.dp)
+                .background(Brush.radialGradient(listOf(AiViolet.copy(alpha = .22f), Color.Transparent)), CircleShape))
+            LazyColumn(
+                Modifier.fillMaxSize().statusBarsPadding().imePadding(),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 40.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        GlassIconButton(R.drawable.ic_back, "Indietro") { onDismiss() }
+                        Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                            Text("INTELLIGENZA ARTIFICIALE", color = AiViolet, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp)
+                            Text(FIND_TITLE, style = MaterialTheme.typography.headlineMedium, color = Ink)
+                        }
+                        if (configured && (step > 0 || done)) Text("Ricomincia", color = AiViolet, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                            modifier = Modifier.clip(CircleShape).noRippleClickable { if (!loading) restart() }.padding(horizontal = 10.dp, vertical = 8.dp))
+                    }
+                }
+                if (!configured) {
+                    item { Text("Rispondi a qualche domanda semplice e l'IA prova a indovinare il film o la serie che hai in mente. Prima collega il tuo account Cloudflare.", color = Muted, fontSize = 15.sp, lineHeight = 21.sp) }
+                    item { AiSetupCard(onConfiguredChange = { configured = it }) }
+                    return@LazyColumn
+                }
+                if (!done) {
+                    val current = FIND_TITLE_STEPS[step]
+                    val selected = selections[step].orEmpty()
+                    val text = texts[step].orEmpty()
+                    val canContinue = if (current.required) text.isNotBlank() else true
+                    item {
+                        Column {
+                            Text("Domanda ${step + 1} di ${FIND_TITLE_STEPS.size}", color = Muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            LinearProgressIndicator(
+                                progress = { (step + 1f) / FIND_TITLE_STEPS.size },
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(6.dp).clip(CircleShape),
+                                color = AiViolet, trackColor = Sw.Raised, drawStopIndicator = {}
+                            )
+                        }
+                    }
+                    item {
+                        AnimatedContent(
+                            step,
+                            transitionSpec = { (fadeIn(tween(260, 60)) + androidx.compose.animation.slideInHorizontally(tween(380, easing = Sw.Emphasized)) { it / 5 }) togetherWith fadeOut(tween(140)) },
+                            label = "find-title-step"
+                        ) { index ->
+                            val shown = FIND_TITLE_STEPS[index]
+                            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                Text(shown.question, style = MaterialTheme.typography.headlineSmall, color = Ink, fontWeight = FontWeight.ExtraBold)
+                                Text(shown.hint, color = Muted, fontSize = 15.sp, lineHeight = 21.sp)
+                                if (shown.options.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    shown.options.forEach { option ->
+                                        val active = option in selections[index].orEmpty()
+                                        Box(
+                                            Modifier.clip(CircleShape)
+                                                .background(if (active) AiViolet.copy(alpha = .22f) else Sw.Raised)
+                                                .border(1.dp, if (active) AiViolet else Color.White.copy(alpha = .06f), CircleShape)
+                                                .noRippleClickable {
+                                                    val now = selections[index].orEmpty()
+                                                    selections[index] = when {
+                                                        !shown.multiple -> if (active) emptySet() else setOf(option)
+                                                        option == DONT_REMEMBER -> if (active) emptySet() else setOf(option)
+                                                        active -> now - option
+                                                        else -> now - DONT_REMEMBER + option
+                                                    }
+                                                    // Single-choice questions move on by themselves.
+                                                    if (!shown.multiple && !active) step = index + 1
+                                                }
+                                                .padding(horizontal = 16.dp, vertical = 10.dp)
+                                        ) { Text(option, color = if (active) Color.White else Ink.copy(alpha = .85f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
+                                    }
+                                }
+                                if (shown.placeholder != null) Box(
+                                    Modifier.fillMaxWidth().heightIn(min = 120.dp).clip(RoundedCornerShape(24.dp))
+                                        .background(Sw.Surface)
+                                        .border(1.dp, Brush.linearGradient(listOf(AiViolet.copy(alpha = .5f), Sw.Red.copy(alpha = .3f))), RoundedCornerShape(24.dp))
+                                        .padding(16.dp)
+                                ) {
+                                    androidx.compose.foundation.text.BasicTextField(
+                                        value = texts[index].orEmpty(),
+                                        onValueChange = { texts[index] = it.take(400) },
+                                        textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 16.sp, lineHeight = 22.sp),
+                                        cursorBrush = androidx.compose.ui.graphics.SolidColor(AiViolet),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        decorationBox = { inner ->
+                                            Box {
+                                                if (texts[index].isNullOrEmpty()) Text(shown.placeholder, color = Muted, fontSize = 16.sp, lineHeight = 22.sp)
+                                                inner()
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    item {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            if (step > 0) OutlinedButton({ step-- }, Modifier.weight(1f).height(54.dp), shape = CircleShape) { Text("Indietro") }
+                            val last = step == FIND_TITLE_STEPS.size - 1
+                            Button(
+                                onClick = { if (last) { step++; search() } else step++ },
+                                enabled = canContinue,
+                                modifier = Modifier.weight(if (step > 0) 1.6f else 1f).height(54.dp)
+                                    .background(if (canContinue) Brush.linearGradient(listOf(AiViolet, Sw.Red)) else Brush.linearGradient(listOf(Sw.Raised, Sw.Raised)), CircleShape),
+                                shape = CircleShape,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White, disabledContainerColor = Color.Transparent, disabledContentColor = Muted)
+                            ) {
+                                if (last) { Icon(painterResource(R.drawable.ic_sparkles), null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)) }
+                                Text(
+                                    when {
+                                        last -> "Trova il titolo"
+                                        current.required || current.multiple || selected.isNotEmpty() || text.isNotBlank() -> "Avanti"
+                                        else -> "Salta"
+                                    },
+                                    fontWeight = FontWeight.Bold, fontSize = 16.sp
+                                )
+                            }
+                        }
+                    }
+                    return@LazyColumn
+                }
+                item {
+                    Text(
+                        if (loading) "Sto ripensando ai tuoi indizi…" else if (results.isNotEmpty()) "Forse cercavi uno di questi. Tocca quello giusto per aprirlo." else "",
+                        color = Muted, fontSize = 15.sp, lineHeight = 21.sp
+                    )
+                }
+                if (loading) items(3) {
+                    Row(Modifier.fillMaxWidth().glass(RoundedCornerShape(22.dp)).padding(10.dp)) {
+                        LoadingSkeleton(Modifier.size(84.dp, 124.dp).clip(RoundedCornerShape(14.dp)))
+                        Column(Modifier.weight(1f).padding(start = 14.dp, top = 6.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            LoadingSkeleton(Modifier.fillMaxWidth(.4f).height(10.dp).clip(CircleShape))
+                            LoadingSkeleton(Modifier.fillMaxWidth(.8f).height(16.dp).clip(CircleShape))
+                            LoadingSkeleton(Modifier.fillMaxWidth().height(12.dp).clip(CircleShape))
+                        }
+                    }
+                }
+                else itemsIndexed(results, key = { _, item -> item.first.id }) { index, (media, reason) ->
+                    AiResultCard(media, reason, Modifier.reveal(delayMillis = index * 70, distance = 24.dp)) { onOpen(media) }
+                }
+                error?.let { message -> item { Text(message, color = DislikeRed, fontSize = 14.sp, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center) } }
+                if (!loading) item {
+                    Surface(color = Panel, shape = RoundedCornerShape(24.dp), border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(if (results.isEmpty()) "Proviamo ancora" else "Non è nessuno di questi?", style = MaterialTheme.typography.titleLarge, color = Ink)
+                            Text(question.ifBlank { "Aggiungi un dettaglio che ricordi: un attore, una scena, un luogo." }, color = Muted, fontSize = 15.sp, lineHeight = 21.sp)
+                            if (options.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                options.forEach { option ->
+                                    Box(
+                                        Modifier.clip(CircleShape).background(Sw.Raised).border(1.dp, AiViolet.copy(alpha = .4f), CircleShape)
+                                            .noRippleClickable { answerFollowUp(option) }
+                                            .padding(horizontal = 14.dp, vertical = 9.dp)
+                                    ) { Text(option, color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+                                }
+                            }
+                            OutlinedTextField(
+                                value = followText,
+                                onValueChange = { followText = it.take(300) },
+                                placeholder = { Text("Oppure scrivi tu…") },
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = { answerFollowUp(followText) }),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Button(
+                                onClick = { answerFollowUp(followText) },
+                                enabled = followText.isNotBlank(),
+                                modifier = Modifier.fillMaxWidth().height(50.dp),
+                                shape = CircleShape,
+                                colors = ButtonDefaults.buttonColors(containerColor = AiViolet, contentColor = Color.White)
+                            ) { Text("Cerca ancora", fontWeight = FontWeight.Bold) }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 private fun resolveAiPick(api: TmdbApi, pick: AiPick): Models.Media? = runCatching {
@@ -984,6 +1261,7 @@ private fun HomeScreen(
     onSettings: (Rect?) -> Unit,
     onAdvisor: (Boolean) -> Unit,
     onAskAi: (Rect?) -> Unit,
+    onFindTitle: (Rect?) -> Unit,
     onOpenLibrary: (LibrarySection) -> Unit,
     onDiscover: () -> Unit,
     onOpenGuide: () -> Unit,
@@ -1038,6 +1316,7 @@ private fun HomeScreen(
         }
         item { AdvisorCards(progress.isNotEmpty() || saved.isNotEmpty(), Modifier.reveal(90), onAdvisor) }
         item { AiAskCard(Modifier.padding(horizontal = 20.dp).reveal(120), onAskAi) }
+        item { FindTitleCard(Modifier.padding(horizontal = 20.dp).reveal(150), onFindTitle) }
         if (holiday != null && holidayMedia.any { it.id !in hidden }) item {
             HolidayRail(holiday, holidayMedia.filter { it.id !in hidden }, store, onOpen, onAction, onSeeAll = { onDiscover() }, onLoadMore = null, loadingMore = false)
         }
