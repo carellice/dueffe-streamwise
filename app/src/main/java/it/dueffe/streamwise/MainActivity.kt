@@ -834,16 +834,18 @@ private fun FindTitleScreen(api: TmdbApi, onDismiss: () -> Unit, onOpen: (Models
                     item { AiSetupCard(onConfiguredChange = { configured = it }) }
                     return@LazyColumn
                 }
-                if (!done) {
-                    val current = FIND_TITLE_STEPS[step]
-                    val selected = selections[step].orEmpty()
-                    val text = texts[step].orEmpty()
+                // Read step here: this lambda runs at measure time, after "done" was computed for the last composition.
+                val stepIndex = step
+                if (stepIndex < FIND_TITLE_STEPS.size) {
+                    val current = FIND_TITLE_STEPS[stepIndex]
+                    val selected = selections[stepIndex].orEmpty()
+                    val text = texts[stepIndex].orEmpty()
                     val canContinue = if (current.required) text.isNotBlank() else true
                     item {
                         Column {
-                            Text("Domanda ${step + 1} di ${FIND_TITLE_STEPS.size}", color = Muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Domanda ${stepIndex + 1} di ${FIND_TITLE_STEPS.size}", color = Muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             LinearProgressIndicator(
-                                progress = { (step + 1f) / FIND_TITLE_STEPS.size },
+                                progress = { (stepIndex + 1f) / FIND_TITLE_STEPS.size },
                                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(6.dp).clip(CircleShape),
                                 color = AiViolet, trackColor = Sw.Raised, drawStopIndicator = {}
                             )
@@ -851,7 +853,7 @@ private fun FindTitleScreen(api: TmdbApi, onDismiss: () -> Unit, onOpen: (Models
                     }
                     item {
                         AnimatedContent(
-                            step,
+                            stepIndex,
                             transitionSpec = { (fadeIn(tween(260, 60)) + androidx.compose.animation.slideInHorizontally(tween(380, easing = Sw.Emphasized)) { it / 5 }) togetherWith fadeOut(tween(140)) },
                             label = "find-title-step"
                         ) { index ->
@@ -906,12 +908,12 @@ private fun FindTitleScreen(api: TmdbApi, onDismiss: () -> Unit, onOpen: (Models
                     }
                     item {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            if (step > 0) OutlinedButton({ step-- }, Modifier.weight(1f).height(54.dp), shape = CircleShape) { Text("Indietro") }
-                            val last = step == FIND_TITLE_STEPS.size - 1
+                            if (stepIndex > 0) OutlinedButton({ step-- }, Modifier.weight(1f).height(54.dp), shape = CircleShape) { Text("Indietro") }
+                            val last = stepIndex == FIND_TITLE_STEPS.size - 1
                             Button(
                                 onClick = { if (last) { step++; search() } else step++ },
                                 enabled = canContinue,
-                                modifier = Modifier.weight(if (step > 0) 1.6f else 1f).height(54.dp)
+                                modifier = Modifier.weight(if (stepIndex > 0) 1.6f else 1f).height(54.dp)
                                     .background(if (canContinue) Brush.linearGradient(listOf(AiViolet, Sw.Red)) else Brush.linearGradient(listOf(Sw.Raised, Sw.Raised)), CircleShape),
                                 shape = CircleShape,
                                 colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White, disabledContainerColor = Color.Transparent, disabledContentColor = Muted)
@@ -987,9 +989,31 @@ private fun FindTitleScreen(api: TmdbApi, onDismiss: () -> Unit, onOpen: (Models
     }
 }
 
+private fun normalizedTitle(value: String): String =
+    java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFD).lowercase().filter { it.isLetterOrDigit() }
+
+/**
+ * Matches an AI pick to its TMDB entry. The AI gives the original title, while search results are sorted by
+ * their Italian title, so a lesser namesake without poster or plot could win: candidates are scored on both
+ * titles, the year and how complete their data is.
+ */
 private fun resolveAiPick(api: TmdbApi, pick: AiPick): Models.Media? = runCatching {
-    api.searchTitles(pick.title, pick.year).toList().firstOrNull { it.mediaType == pick.type }
-        ?: api.searchTitles(pick.title, null).toList().firstOrNull { it.mediaType == pick.type }
+    val wanted = normalizedTitle(pick.title)
+    api.searchTitles(pick.title, null).toList().filter { it.mediaType == pick.type }.minWithOrNull(
+        compareBy<Models.Media>({ media ->
+            val titles = listOf(media.title, media.originalTitle).map(::normalizedTitle).filter { it.isNotEmpty() }
+            val titleScore = when {
+                titles.any { it == wanted } -> 0
+                titles.any { it.startsWith(wanted) || wanted.startsWith(it) } -> 1
+                titles.any { it.contains(wanted) || wanted.contains(it) } -> 2
+                else -> 4
+            }
+            val yearGap = media.year.toIntOrNull()?.let { year -> pick.year?.let { kotlin.math.abs(it - year) } }
+            val yearScore = when { pick.year == null -> 1; yearGap == null -> 3; yearGap == 0 -> 0; yearGap == 1 -> 1; else -> 4 }
+            val missingData = (if (media.poster.isBlank()) 3 else 0) + (if (media.overview.isBlank() || media.overview == "Trama non disponibile.") 1 else 0)
+            titleScore * 3 + yearScore * 2 + missingData
+        }, { -it.rating })
+    )
 }.getOrNull()
 
 @OptIn(ExperimentalLayoutApi::class)
