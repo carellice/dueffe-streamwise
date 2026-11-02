@@ -30,7 +30,7 @@ final class LibraryStore {
         return ids;
     }
     void setSubscriptions(java.util.Set<Integer> ids){
-        prefs.edit().putString("subscriptions",new JSONArray(ids).toString()).apply();
+        prefs.edit().putString("subscriptions",new JSONArray(ids).toString()).apply();ServerSync.INSTANCE.prefsChanged(context);
     }
     private static java.util.Set<Integer> subscriptionIds(String raw){
         java.util.Set<Integer> ids=new java.util.LinkedHashSet<>();JSONArray array=null;
@@ -53,9 +53,9 @@ final class LibraryStore {
         return ids;
     }
     String subscriptionFilter(String section){return prefs.getString("subscription-filter-"+section,"{}");}
-    void setSubscriptionFilter(String section,String json){prefs.edit().putString("subscription-filter-"+section,json).apply();}
+    void setSubscriptionFilter(String section,String json){prefs.edit().putString("subscription-filter-"+section,json).apply();ServerSync.INSTANCE.prefsChanged(context);}
     String librarySort(String section){return prefs.getString("library-sort-"+section,"TITLE");}
-    void setLibrarySort(String section,String sort){prefs.edit().putString("library-sort-"+section,sort).apply();}
+    void setLibrarySort(String section,String sort){prefs.edit().putString("library-sort-"+section,sort).apply();ServerSync.INSTANCE.prefsChanged(context);}
     void save(Models.Media media){ Models.LibraryEntry e=entry(media); e.state=media.isSeries()?"progress":"saved"; if(media.isSeries()){e.nextSeason=1;e.nextEpisode=1;e.watchedSeason=null;e.watchedEpisode=null;} persist(); }
     void watched(Models.Media media,boolean liked){ Models.LibraryEntry e=entry(media); e.state="watched"; e.liked=liked; persist(); }
     void markMovieUnwatched(Models.Media media){ Models.LibraryEntry e=entry(media); e.state="saved"; e.liked=null; persist(); }
@@ -85,18 +85,18 @@ final class LibraryStore {
     boolean reopenForNewEpisodes(Models.Media media,List<Models.Season> seasons){Models.LibraryEntry e=entries.get(media.id);if(e==null||!"watched".equals(e.state)||e.completedEpisodeCount<=0)return false;List<Models.Episode> all=flatten(seasons);int total=all.isEmpty()?seasons.stream().mapToInt(s->s.episodeCount).sum():all.size();if(total<=e.completedEpisodeCount)return false;Models.Episode next=all.isEmpty()?episodeAt(seasons,e.completedEpisodeCount):all.get(e.completedEpisodeCount);Models.Episode previous=all.isEmpty()?episodeAt(seasons,e.completedEpisodeCount-1):all.get(e.completedEpisodeCount-1);if(next==null||previous==null)return false;e.state="progress";e.nextSeason=next.season;e.nextEpisode=next.number;e.watchedSeason=previous.season;e.watchedEpisode=previous.number;persist();return true;}
     void advanceFallback(Models.Media media){Models.LibraryEntry e=entry(media);e.state="progress";e.watchedSeason=e.nextSeason;e.watchedEpisode=e.nextEpisode;e.nextEpisode++;persist();}
     List<String> preferredGenres(){ return Models.strings(jsonArray(prefs.getString("genres","[]"))); }
-    void toggleGenre(String id){ List<String> g=preferredGenres();if(g.contains(id))g.remove(id);else g.add(id);prefs.edit().putString("genres",new JSONArray(g).toString()).apply(); }
+    void toggleGenre(String id){ List<String> g=preferredGenres();if(g.contains(id))g.remove(id);else g.add(id);prefs.edit().putString("genres",new JSONArray(g).toString()).apply();ServerSync.INSTANCE.prefsChanged(context); }
     String themeMode(){return prefs.getString("theme-mode","system");}
     void setThemeMode(String mode){prefs.edit().putString("theme-mode",mode).apply();}
     boolean hideShowCredits(){return hideShowCredits(context);}
-    void setHideShowCredits(boolean hide){prefs.edit().putBoolean("hide-show-credits",hide).apply();}
+    void setHideShowCredits(boolean hide){prefs.edit().putBoolean("hide-show-credits",hide).apply();ServerSync.INSTANCE.prefsChanged(context);}
     /** Filmographies skip talk shows, reality and appearances as oneself unless the user turns it off. */
     static boolean hideShowCredits(Context c){return c.getSharedPreferences("streamwise-native",Context.MODE_PRIVATE).getBoolean("hide-show-credits",true);}
     boolean libraryGridView(String section){return prefs.getBoolean("library-grid-"+section,false);}
-    void setLibraryGridView(String section,boolean grid){prefs.edit().putBoolean("library-grid-"+section,grid).apply();}
+    void setLibraryGridView(String section,boolean grid){prefs.edit().putBoolean("library-grid-"+section,grid).apply();ServerSync.INSTANCE.prefsChanged(context);}
     boolean onboardingDone(){return prefs.getBoolean("onboarding-done",false);}
-    void setOnboardingDone(){prefs.edit().putBoolean("onboarding-done",true).apply();}
-    void resetOnboarding(){prefs.edit().putBoolean("onboarding-done",false).apply();}
+    void setOnboardingDone(){prefs.edit().putBoolean("onboarding-done",true).apply();ServerSync.INSTANCE.prefsChanged(context);}
+    void resetOnboarding(){prefs.edit().putBoolean("onboarding-done",false).apply();ServerSync.INSTANCE.prefsChanged(context);}
     String exportJson(){
         JSONObject root=new JSONObject();
         try{
@@ -122,7 +122,7 @@ final class LibraryStore {
     private Models.LibraryEntry entry(Models.Media m){ Models.LibraryEntry e=entries.get(m.id);if(e==null){e=new Models.LibraryEntry();entries.put(m.id,e);}e.media=m;return e; }
     void reload(){entries.clear();load();}
     private void load(){ JSONArray a=jsonArray(prefs.getString("library","[]"));for(int i=0;i<a.length();i++){Models.LibraryEntry e=Models.LibraryEntry.from(a.optJSONObject(i));if(e.media!=null&&!e.media.id.isEmpty())entries.put(e.media.id,e);} }
-    private void persist(){ JSONArray a=new JSONArray();for(Models.LibraryEntry e:entries.values())a.put(e.json());prefs.edit().putString("library",a.toString()).apply(); EpisodesWidget.updateAll(context); }
+    private void persist(){ JSONArray a=new JSONArray();for(Models.LibraryEntry e:entries.values())a.put(e.json());prefs.edit().putString("library",a.toString()).apply(); EpisodesWidget.updateAll(context); ServerSync.INSTANCE.libraryChanged(context,entries.values()); }
     private JSONArray jsonArray(String s){try{return new JSONArray(s);}catch(Exception e){return new JSONArray();}}
     static List<Models.Episode> flatten(List<Models.Season> seasons){List<Models.Episode> out=new ArrayList<>();for(Models.Season s:seasons)out.addAll(s.episodes);return out;}
     private Models.Episode episodeAt(List<Models.Season> seasons,int index){for(Models.Season s:seasons){if(index<s.episodeCount){Models.Episode e=new Models.Episode();e.season=s.number;e.number=index+1;return e;}index-=s.episodeCount;}return null;}

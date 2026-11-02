@@ -66,6 +66,11 @@ public final class ReleaseCheckWorker extends Worker {
 
     @NonNull @Override public Result doWork(){
         Context c=getApplicationContext();
+        // Server mode: the server checks the releases; the phone refreshes its copy and shows what it announced.
+        if(ServerSync.INSTANCE.active(c)){
+            ServerSync.INSTANCE.backgroundCheckBlocking(c);
+            return Result.success();
+        }
         ZonedDateTime now=ZonedDateTime.now(TvGuideRepository.ROME);
         // Background checks stay silent at night; the next morning run delivers what was released.
         if(!getInputData().getBoolean(INTERACTIVE,false)&&(now.getHour()<8||now.getHour()>=23))return Result.success();
@@ -137,6 +142,23 @@ public final class ReleaseCheckWorker extends Worker {
         Bitmap poster=poster(media.poster);
         if(poster!=null)builder.setLargeIcon(poster);
         c.getSystemService(NotificationManager.class).notify(PersonFollows.key(person),media.id.hashCode(),builder.build());
+    }
+    /** A notification the server sent for this account (new episode, release, credit), shown once on this phone. */
+    static void notifyFromServer(Context c,org.json.JSONObject n){
+        if(!notificationsAllowed(c))return;
+        String mediaId=n.optString("mediaId");
+        Intent open=new Intent(c,MainActivity.class).setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .setData(new Uri.Builder().scheme("streamwise").authority("media").appendPath(mediaId).build())
+            .putExtra(MainActivity.EXTRA_OPEN_MEDIA_ID,mediaId);
+        PendingIntent content=PendingIntent.getActivity(c,n.optString("id").hashCode(),open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+        String text=n.optString("text");
+        Notification.Builder builder=new Notification.Builder(c,CHANNEL).setSmallIcon(R.drawable.ic_notifications)
+            .setContentTitle(n.optString("title")).setContentText(text).setStyle(new Notification.BigTextStyle().bigText(text))
+            .setSubText(n.optString("subtext")).setColor(0xFFB51F3D)
+            .setContentIntent(content).setAutoCancel(true).setCategory(Notification.CATEGORY_RECOMMENDATION).setShowWhen(true);
+        Bitmap poster=poster(n.optString("poster"));
+        if(poster!=null)builder.setLargeIcon(poster);
+        c.getSystemService(NotificationManager.class).notify(mediaId,n.optString("id").hashCode(),builder.build());
     }
     private static Bitmap poster(String url){
         if(url==null||url.isEmpty())return null;

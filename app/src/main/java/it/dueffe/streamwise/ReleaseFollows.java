@@ -87,12 +87,14 @@ final class ReleaseFollows {
         Follow f=new Follow();f.media=media;f.followedAt=System.currentTimeMillis();
         if(info!=null)initialize(f,info,LocalDate.now(TvGuideRepository.ROME));
         synchronized(LOCK){prefs(c).edit().putString(media.id,f.json().toString()).commit();}
+        ServerSync.INSTANCE.followSaved(c,f.json());
         ReleaseCheckWorker.schedule(c);
         if(info==null)ReleaseCheckWorker.checkNow(c);
         return f;
     }
     static void unfollow(Context c,String id){
         synchronized(LOCK){prefs(c).edit().remove(id).commit();}
+        ServerSync.INSTANCE.followRemoved(c,id);
         ReleaseCheckWorker.schedule(c);
     }
     /** Saves a checked follow unless the user stopped following it in the meantime. */

@@ -179,7 +179,26 @@ export function state(): Omit<AppState, 'revision'> {
     // The token itself never leaves the server.
     ai: { configured: aiAccount() !== '' && aiToken() !== '', accountId: aiAccount() },
     lastCheck: Number(getMeta('last_check') ?? '0'),
+    notices: notices(),
   }
+}
+
+/** Notifications the release checks sent recently, so the Android app in server mode can show them too. */
+export type SentNotice = { id: string; title: string; text: string; mediaId: string; subtext: string; poster: string; at: number }
+
+export function notices(): SentNotice[] {
+  try {
+    const list = JSON.parse(getMeta('notices') ?? '[]') as SentNotice[]
+    return Array.isArray(list) ? list : []
+  } catch {
+    return []
+  }
+}
+
+export function addNotice(notice: SentNotice) {
+  const week = Date.now() - 7 * 24 * 3600 * 1000
+  const list = [...notices().filter((n) => n.at > week && n.id !== notice.id), notice].slice(-50)
+  setMeta('notices', JSON.stringify(list))
 }
 
 // --- writes ----------------------------------------------------------------------------------

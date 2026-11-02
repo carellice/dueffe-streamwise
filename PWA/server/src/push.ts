@@ -86,7 +86,9 @@ export async function checkReleases(interactive: boolean) {
         const notices = evaluate(follow, await api.releaseInfo(follow.media), today)
         if (data.updateFollow(follow)) {
           for (const notice of notices) {
-            await send({ title: notice.title, body: notice.text, url: mediaLink(follow.media), tag: `${follow.media.id}:${notice.kind}`, icon: follow.media.poster || undefined })
+            const tag = `${follow.media.id}:${notice.kind}`
+            data.addNotice({ id: `${tag}:${Date.now()}`, title: notice.title, text: notice.text, mediaId: follow.media.id, subtext: follow.media.mediaType === 'tv' ? 'Serie che segui' : 'Film che segui', poster: follow.media.poster, at: Date.now() })
+            await send({ title: notice.title, body: notice.text, url: mediaLink(follow.media), tag, icon: follow.media.poster || undefined })
           }
         }
       } catch { /* retried at the next run */ }
@@ -104,6 +106,7 @@ export async function checkReleases(interactive: boolean) {
         const fresh = evaluatePerson(follow, all, shows, today)
         if (data.updatePerson(follow)) {
           for (const media of fresh) {
+            data.addNotice({ id: `${personKey(follow.person)}:${media.id}`, title: follow.person.name, text: personNoticeText(media, today), mediaId: media.id, subtext: follow.person.director ? 'Regista che segui' : 'Persona che segui', poster: media.poster, at: Date.now() })
             await send({ title: follow.person.name, body: personNoticeText(media, today), url: mediaLink(media), tag: `${personKey(follow.person)}:${media.id}`, icon: media.poster || undefined })
           }
         }

@@ -57,11 +57,13 @@ final class PersonFollows {
     static void follow(Context c,Models.Person person){
         Follow f=new Follow();f.person=person;f.followedAt=System.currentTimeMillis();
         synchronized(LOCK){prefs(c).edit().putString(f.key(),f.json().toString()).commit();}
+        ServerSync.INSTANCE.personSaved(c,f.json());
         ReleaseCheckWorker.schedule(c);
         ReleaseCheckWorker.checkNow(c);
     }
     static void unfollow(Context c,Models.Person person){
         synchronized(LOCK){prefs(c).edit().remove(key(person)).commit();}
+        ServerSync.INSTANCE.personRemoved(c,key(person));
         ReleaseCheckWorker.schedule(c);
     }
     /** Saves a checked follow unless the user stopped following in the meantime. */

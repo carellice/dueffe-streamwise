@@ -34,17 +34,20 @@ public final class TvReminderReceiver extends BroadcastReceiver {
         if(!exactAllowed(c)||!notificationsAllowed(c))throw new IllegalStateException("Abilita notifiche e promemoria nelle impostazioni.");
         JSONObject record=new JSONObject().put("title",p.title).put("channel",p.channel).put("start",p.start.toEpochMilli()).put("end",p.end.toEpochMilli()).put("minutes",minutes).put("trigger",trigger(p,minutes));
         schedule(c,p.key(),record);
-        if(!prefs(c).edit().putString(p.key(),record.toString()).commit()){cancel(c,p.key());throw new IllegalStateException("Impossibile salvare il promemoria.");}
+        if(!prefs(c).edit().putString(p.key(),record.toString()).commit()){cancelLocally(c,p.key());throw new IllegalStateException("Impossibile salvare il promemoria.");}
+        ServerSync.INSTANCE.reminderSaved(c,p.key(),record);
     }
     static void schedule(Context c,String key,JSONObject record){
         AlarmManager manager=c.getSystemService(AlarmManager.class);
         manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,record.optLong("trigger"),alarmIntent(c,key));
     }
-    static void cancel(Context c,String key){PendingIntent intent=alarmIntent(c,key);c.getSystemService(AlarmManager.class).cancel(intent);intent.cancel();prefs(c).edit().remove(key).commit();}
+    static void cancel(Context c,String key){cancelLocally(c,key);ServerSync.INSTANCE.reminderRemoved(c,key);}
+    /** Removes the alarm on this phone only (the server drops past reminders by itself). */
+    static void cancelLocally(Context c,String key){PendingIntent intent=alarmIntent(c,key);c.getSystemService(AlarmManager.class).cancel(intent);intent.cancel();prefs(c).edit().remove(key).commit();}
     static void restore(Context c){
         for(Map.Entry<String,?> entry:prefs(c).getAll().entrySet())try{
             JSONObject record=new JSONObject((String)entry.getValue());
-            if(record.optLong("start")<=System.currentTimeMillis())cancel(c,entry.getKey());
+            if(record.optLong("start")<=System.currentTimeMillis())cancelLocally(c,entry.getKey());
             else if(exactAllowed(c)){
                 // A reminder missed during a restart is still useful while the programme has not started.
                 record.put("trigger",Math.max(record.optLong("trigger"),System.currentTimeMillis()+1000));schedule(c,entry.getKey(),record);

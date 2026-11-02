@@ -1,5 +1,8 @@
 package it.dueffe.streamwise
 
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -227,7 +230,7 @@ private data class SagaCollection(val id: Int, val name: String, val movies: Lis
 private fun sagaArtworkKey(collection: SagaCollection) = "saga-${collection.id}::${collection.id}"
 
 class MainActivity : ComponentActivity() {
-    companion object { const val EXTRA_OPEN_MEDIA = "open-media" }
+    companion object { const val EXTRA_OPEN_MEDIA = "open-media"; const val EXTRA_OPEN_MEDIA_ID = "open-media-id" }
     private var guideRequest by mutableStateOf<Pair<String, Long>?>(null)
     private var mediaRequest by mutableStateOf<Pair<Models.Media, Long>?>(null)
     private fun readGuideIntent(intent: android.content.Intent, includeMedia: Boolean = true) {
@@ -238,6 +241,15 @@ class MainActivity : ComponentActivity() {
             runCatching { Models.Media.from(org.json.JSONObject(raw)) }.getOrNull()?.takeIf { it.id.isNotEmpty() }?.let { mediaRequest = it to System.nanoTime() }
             intent.removeExtra(EXTRA_OPEN_MEDIA)
         }
+        // Notifications from the server (server mode) carry only the id: the detail page loads the rest.
+        if (includeMedia) intent.getStringExtra(EXTRA_OPEN_MEDIA_ID)?.let { id ->
+            val known = LibraryStore(this).all().firstOrNull { it.media.id == id }?.media ?: ReleaseFollows.get(this, id)?.media
+            val media = known ?: Regex("^tmdb-(movie|tv)-([0-9]+)$").find(id)?.let { match ->
+                Models.Media().also { it.id = id; it.mediaType = match.groupValues[1]; it.tmdbId = match.groupValues[2].toInt() }
+            }
+            media?.let { mediaRequest = it to System.nanoTime() }
+            intent.removeExtra(EXTRA_OPEN_MEDIA_ID)
+        }
     }
     override fun onNewIntent(intent: android.content.Intent) { super.onNewIntent(intent); readGuideIntent(intent) }
 
@@ -246,6 +258,13 @@ class MainActivity : ComponentActivity() {
         // A recreated activity must not reopen the title from the notification that launched it.
         readGuideIntent(intent, includeMedia = savedInstanceState == null)
         ReleaseCheckWorker.refreshOnLaunch(this)
+        // Server mode: changes made on the web or on other phones arrive while the app is visible.
+        lifecycleScope.launch {
+            repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                launch { ServerSync.errors.collect { Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show() } }
+                while (true) { ServerSync.refresh(this@MainActivity); delay(30_000) }
+            }
+        }
         enableEdgeToEdge()
         val store = LibraryStore(this)
         val api = TmdbApi(BuildConfig.TMDB_API_KEY)
@@ -256,10 +275,17 @@ class MainActivity : ComponentActivity() {
             val exportBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
                 if (uri != null) contentResolver.openOutputStream(uri)?.use { it.write(store.exportJson().toByteArray(Charsets.UTF_8)) }
             }
+            val importScope = rememberCoroutineScope()
             val importBackup = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
                 if (uri != null) {
-                    val restored = runCatching { contentResolver.openInputStream(uri)?.bufferedReader()?.use { store.importJson(it.readText()) } ?: false }.getOrDefault(false)
-                    if (restored) { showOnboarding = false; backupVersion++ }
+                    val text = runCatching { contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } }.getOrNull()
+                    // In server mode the backup replaces the account's data on the server, then comes back from it.
+                    if (text != null && ServerSync.active(this@MainActivity)) importScope.launch {
+                        if (ServerSync.importBackup(this@MainActivity, text)) { store.reload(); showOnboarding = false; backupVersion++ }
+                    } else {
+                        val restored = text != null && runCatching { store.importJson(text) }.getOrDefault(false)
+                        if (restored) { showOnboarding = false; backupVersion++ }
+                    }
                 }
             }
             StreamWiseTheme {
@@ -4869,6 +4895,7 @@ private fun SettingsScreen(
                         }
                     }
                 }
+                item { ServerCard(store, onChanged) }
                 item {
                     OutlinedButton(onClick = { onDismiss(); onReplayOnboarding() }, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(18.dp)) {
                         Icon(painterResource(R.drawable.ic_sparkles), null); Spacer(Modifier.width(8.dp)); Text("Rivedi l’onboarding")
