@@ -20,7 +20,7 @@ android {
     buildFeatures { buildConfig true; compose true }
 
     defaultConfig {
-        def updateRepo = providers.gradleProperty('updateRepository').getOrElse('carellice/android-app-releases')
+        def updateRepo = providers.gradleProperty('updateRepository').getOrElse('carellice/dueffe-streamwise')
         if (!(updateRepo ==~ /[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/)) throw new GradleException('updateRepository must be owner/repo')
         buildConfigField 'String', 'UPDATE_REPOSITORY', '"' + updateRepo + '"' 
         applicationId 'it.dueffe.streamwise'

@@ -38,7 +38,7 @@ if (-not ($env:JAVA_HOME -and (Test-Path "$env:JAVA_HOME\bin\java.exe"))) {
 $sdk = Find-First @($env:ANDROID_HOME, "$env:LOCALAPPDATA\Android\Sdk")
 if ($sdk) { $env:ANDROID_HOME = $sdk; $env:ANDROID_SDK_ROOT = $sdk }
 
-$GitHubReleaseRepo = if ($env:GITHUB_RELEASE_REPO) { $env:GITHUB_RELEASE_REPO } else { 'carellice/android-app-releases' }
+$GitHubReleaseRepo = if ($env:GITHUB_RELEASE_REPO) { $env:GITHUB_RELEASE_REPO } else { 'carellice/dueffe-streamwise' }
 $gh = (Get-Command gh -ErrorAction SilentlyContinue).Source
 if (-not $gh) { $gh = Find-First @("$env:ProgramFiles\GitHub CLI\gh.exe") }
 if (-not $gh) { Fail "GitHub CLI non è installato. Installa 'gh' per pubblicare automaticamente l'APK (winget install GitHub.cli)." }

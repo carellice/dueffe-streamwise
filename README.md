@@ -15,7 +15,7 @@ Questa è la riscrittura nativa Android della precedente PWA StreamWise. L'inter
 1. Crea una API Key personale gratuita sul sito TMDB.
 2. Inseriscila in `local.properties` con la riga `tmdb.api.key=LA_TUA_CHIAVE`.
 3. Fai doppio clic su `build-apk.command` oppure avvialo dal Terminale.
-4. Troverai l’APK firmato nella cartella `dist`, già configurato con la chiave. Al termine, lo script crea automaticamente anche una release in `carellice/android-app-releases` e vi allega l’APK.
+4. Troverai l’APK firmato nella cartella `dist`, già configurato con la chiave. Al termine, lo script crea automaticamente anche una release in questa repository (`carellice/dueffe-streamwise`) e vi allega l’APK.
 
 Senza argomenti lo script incrementa automaticamente la patch, per esempio da `1.0.0` a `1.0.1`. Per scegliere una versione precisa:
 
@@ -25,7 +25,7 @@ Senza argomenti lo script incrementa automaticamente la patch, per esempio da `1
 
 Ogni build incrementa anche il codice interno richiesto da Android per accettare un aggiornamento. La cartella `signing` e il file `.streamwise-signing.properties` contengono l’identità di firma: conservali e includili nei backup. Se vengono persi, Android non consentirà di installare un aggiornamento sopra la versione già installata.
 
-La pubblicazione richiede GitHub CLI (`gh`) con un’autenticazione valida e accesso in scrittura alla repository. Ogni release usa un tag nel formato `streamwise-v1.2.3`; se il tag esiste già, l’APK allegato viene sostituito. Dopo la pubblicazione, lo script elimina definitivamente le release precedenti il cui tag inizia con `streamwise-v`, insieme ai relativi tag Git, mantenendo solo quella appena creata; le release delle altre app nella stessa repository non vengono toccate. Per conservarle imposta `STREAMWISE_DELETE_OLD_RELEASES=0`. Per usare un’altra repository puoi impostare la variabile `GITHUB_RELEASE_REPO` nel formato `proprietario/repository`.
+La pubblicazione richiede GitHub CLI (`gh`) con un’autenticazione valida e accesso in scrittura alla repository. Ogni release usa un tag nel formato `streamwise-v1.2.3`; se il tag esiste già, l’APK allegato viene sostituito. Dopo la pubblicazione, lo script elimina definitivamente le release precedenti il cui tag inizia con `streamwise-v`, insieme ai relativi tag Git, mantenendo solo quella appena creata; le release con altri tag non vengono toccate. Per conservarle imposta `STREAMWISE_DELETE_OLD_RELEASES=0`. Per usare un’altra repository puoi impostare la variabile `GITHUB_RELEASE_REPO` nel formato `proprietario/repository`.
 
 Se avviato da Terminale di macOS, al termine lo script chiude automaticamente la propria finestra. Per mantenerla aperta durante una sessione puoi usare `STREAMWISE_CLOSE_TERMINAL=0 ./build-apk.command`.
 
@@ -33,7 +33,7 @@ Se avviato da Terminale di macOS, al termine lo script chiude automaticamente la
 
 Requisiti (una tantum): JDK 17 o Android Studio, Android SDK in `%LOCALAPPDATA%\Android\Sdk`, GitHub CLI con `gh auth login -h github.com` e Python 3. Con winget: `winget install EclipseAdoptium.Temurin.17.JDK GitHub.cli Python.Python.3.12`.
 
-Copia dal Mac `signing/`, `.streamwise-signing.properties` e `local.properties`, poi fai doppio clic su `build-apk.cmd` (oppure `.\build-apk.ps1` da PowerShell). Lo script fa esattamente ciò che fa `build-apk.command`: incrementa la versione, compila l’APK firmato in `dist`, crea la release `streamwise-vX.Y.Z` su `carellice/android-app-releases` con `latest.json` e rimuove le release StreamWise precedenti. Accetta gli stessi argomenti e variabili (`.\build-apk.ps1 1.2.0`, `STREAMWISE_DELETE_OLD_RELEASES=0`, `GITHUB_RELEASE_REPO`). In caso di errore la finestra resta aperta e `version.properties` viene ripristinato.
+Copia dal Mac `signing/`, `.streamwise-signing.properties` e `local.properties`, poi fai doppio clic su `build-apk.cmd` (oppure `.\build-apk.ps1` da PowerShell). Lo script fa esattamente ciò che fa `build-apk.command`: incrementa la versione, compila l’APK firmato in `dist`, crea la release `streamwise-vX.Y.Z` su `carellice/dueffe-streamwise` con `latest.json` e rimuove le release StreamWise precedenti. Accetta gli stessi argomenti e variabili (`.\build-apk.ps1 1.2.0`, `STREAMWISE_DELETE_OLD_RELEASES=0`, `GITHUB_RELEASE_REPO`). In caso di errore la finestra resta aperta e `version.properties` viene ripristinato.
 
 ## Installare sul telefono
 

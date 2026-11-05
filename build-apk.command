@@ -20,7 +20,7 @@ if [[ -d "$HOME/Library/Android/sdk" ]]; then
   export ANDROID_SDK_ROOT="$ANDROID_HOME"
 fi
 
-GITHUB_RELEASE_REPO="${GITHUB_RELEASE_REPO:-carellice/android-app-releases}"
+GITHUB_RELEASE_REPO="${GITHUB_RELEASE_REPO:-carellice/dueffe-streamwise}"
 if ! command -v gh >/dev/null 2>&1; then
   print -u2 "GitHub CLI non è installato. Installa 'gh' per pubblicare automaticamente l'APK."
   exit 1
