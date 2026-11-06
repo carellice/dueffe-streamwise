@@ -10,6 +10,7 @@ import { api, ApiError } from '../lib/api.ts'
 import { useBackHandler } from '../lib/back.ts'
 import { deleteReminder, reminders, saveReminder, useStore } from '../lib/store.ts'
 import { enablePush, notificationsAllowed } from '../lib/push.ts'
+import { addToCalendar } from '../lib/calendar.ts'
 import { tmdb } from '../lib/tmdb.ts'
 import { spring, tween } from '../components/motion.ts'
 import { Dialog, DialogButton } from '../components/overlay.tsx'
@@ -160,6 +161,12 @@ function ReminderCard({ programme }: { programme: Programme }) {
           </Press>
         )}
         {saved > 0 && <DialogButton onClick={() => void deleteReminder(key)}>Rimuovi</DialogButton>}
+        {clock < programme.end && (
+          <DialogButton onClick={() => addToCalendar({
+            title: programme.title, description: [programme.episode, programme.description].filter(Boolean).join('\n\n'),
+            location: `${programme.channel} (canale ${channelNumber(programme.channel)})`, start: programme.start, end: programme.end,
+          })}><span className="row" style={{ gap: 5 }}><Icon name="calendar" size={17} /> Calendario</span></DialogButton>
+        )}
       </div>
       <Dialog open={dialog} onDismiss={() => setDialog(false)} style={{ maxWidth: 360 }}>
         <div style={{ background: 'var(--surface-high)', borderRadius: 28, padding: 24 }}>

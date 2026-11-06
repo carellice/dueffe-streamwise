@@ -3,7 +3,8 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { LibraryEntry, Media, Person } from '../../../shared/model.ts'
 import { isSeries } from '../../../shared/model.ts'
-import { shortLabel, sortFollows, sortPeople } from '../../../shared/follows.ts'
+import { shortLabel, sortFollows, sortPeople, upcomingDate } from '../../../shared/follows.ts'
+import { addReleaseToCalendar } from '../lib/calendar.ts'
 import { todayRome } from '../../../shared/dates.ts'
 import { useBackHandler } from '../lib/back.ts'
 import { byState, entryOf, follows, people, prefs, setPrefs, useStore } from '../lib/store.ts'
@@ -214,7 +215,9 @@ function FollowingContent({ onOpen, onAction, onOpenPerson }: { onOpen: OpenMedi
                   <span className="ellipsis" style={{ color: 'var(--amber)', fontSize: 12, fontWeight: 700, marginLeft: 5 }}>{shortLabel(follow, today)}</span>
                 </div>
               </div>
-              <Icon name="chevronRight" color="var(--muted)" />
+              {upcomingDate(follow, today) !== ''
+                ? <Press pressed={0.9} aria-label="Aggiungi al calendario" className="center" style={{ width: 44, height: 44, flex: 'none' }} onClick={() => addReleaseToCalendar(follow, upcomingDate(follow, today))}><Icon name="calendar" color="var(--amber)" /></Press>
+                : <Icon name="chevronRight" color="var(--muted)" />}
             </Press>
           </motion.div>
         )

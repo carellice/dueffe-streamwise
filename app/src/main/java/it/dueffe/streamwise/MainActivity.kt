@@ -1712,7 +1712,11 @@ private fun FollowingContent(
                         Text(ReleaseFollows.shortLabel(follow, today) ?: "", color = FollowGold, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 5.dp))
                     }
                 }
-                Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Muted)
+                val upcoming = follow.upcomingDate(today)
+                if (upcoming.isNotEmpty()) {
+                    val context = LocalContext.current
+                    IconButton({ addReleaseToCalendar(context, follow, upcoming) }) { Icon(painterResource(R.drawable.ic_calendar), "Aggiungi al calendario", tint = FollowGold) }
+                } else Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Muted)
             }
         }
     }
@@ -5990,6 +5994,10 @@ private fun TvProgrammeReminder(programme: TvGuideRepository.Programme) {
             Row {
                 if (clock.isBefore(programme.start)) Button({ dialog = true; message = null }) { Text(if (saved > 0) "Modifica" else "Avvisami") }
                 if (saved > 0) TextButton({ TvReminderReceiver.cancel(context, programme.key()); saved = -1 }) { Text("Rimuovi") }
+                if (clock.isBefore(programme.end)) TextButton({
+                    addToCalendar(context, programme.title, listOf(programme.episode, programme.description).filter { it.isNotBlank() }.joinToString("\n\n"),
+                        "${programme.channel} (canale ${TvGuideRepository.channelNumber(programme.channel)})", programme.start.toEpochMilli(), programme.end.toEpochMilli())
+                }) { Icon(painterResource(R.drawable.ic_calendar), null, Modifier.size(17.dp)); Spacer(Modifier.width(5.dp)); Text("Calendario") }
             }
         }
     }
@@ -6024,6 +6032,33 @@ private fun TvProgrammeReminder(programme: TvGuideRepository.Programme) {
             else -> runCatching { TvReminderReceiver.save(context, programme, value) }.onSuccess { saved = value; dialog = false }.onFailure { message = it.message ?: "Impossibile attivare il promemoria." }
         }
     }) { Text("Attiva") } }, dismissButton = { TextButton({ dialog = false }) { Text("Annulla") } })
+}
+
+/** Opens the phone's calendar app on a prefilled new event; nothing is written without the user's confirmation there. */
+private fun addToCalendar(context: android.content.Context, title: String, description: String, location: String, begin: Long, end: Long, allDay: Boolean = false) {
+    val intent = android.content.Intent(android.content.Intent.ACTION_INSERT, android.provider.CalendarContract.Events.CONTENT_URI)
+        .putExtra(android.provider.CalendarContract.Events.TITLE, title)
+        .putExtra(android.provider.CalendarContract.Events.DESCRIPTION, description)
+        .putExtra(android.provider.CalendarContract.Events.EVENT_LOCATION, location)
+        .putExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME, begin)
+        .putExtra(android.provider.CalendarContract.EXTRA_EVENT_END_TIME, end)
+        .putExtra(android.provider.CalendarContract.EXTRA_EVENT_ALL_DAY, allDay)
+    runCatching { context.startActivity(intent) }.onFailure {
+        android.widget.Toast.makeText(context, "Nessuna app calendario trovata.", android.widget.Toast.LENGTH_SHORT).show()
+    }
+}
+
+/** All-day calendar event for a followed title's next episode or Italian release, if a date is known. */
+private fun addReleaseToCalendar(context: android.content.Context, follow: ReleaseFollows.Follow, date: String) {
+    val media = follow.media
+    val title = if (media.isSeries) {
+        val code = if (follow.nextEpisode > 0) " S${follow.nextSeason}E${follow.nextEpisode}" else ""
+        "${media.title}$code"
+    } else "${media.title} – ${when (follow.releaseKind) { "cinema" -> "al cinema"; "digital" -> "in digitale"; else -> "uscita" }}"
+    val description = if (media.isSeries && follow.nextName.isNotBlank()) follow.nextName else media.overview
+    // All-day events are expressed as UTC midnights.
+    val day = java.time.LocalDate.parse(date).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+    addToCalendar(context, title, description, "", day, day + 86_400_000L, allDay = true)
 }
 
 private data class SubscriptionData(
@@ -6411,6 +6446,11 @@ private fun FollowReleaseCard(media: Models.Media, api: TmdbApi, refreshVersion:
                     else "Ti avviso con una notifica il giorno dell’uscita in Italia e quando arriva in streaming in abbonamento.",
                     color = Muted, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 10.dp)
                 )
+                val upcoming = state?.upcomingDate(today).orEmpty()
+                if (upcoming.isNotEmpty()) TextButton({ addReleaseToCalendar(context, state!!, upcoming) }, contentPadding = PaddingValues(horizontal = 0.dp)) {
+                    Icon(painterResource(R.drawable.ic_calendar), null, Modifier.size(17.dp), tint = accent); Spacer(Modifier.width(6.dp))
+                    Text(if (media.isSeries) "Aggiungi il prossimo episodio al calendario" else "Aggiungi l’uscita al calendario", color = accent, fontSize = 13.sp)
+                }
                 if (followed && !notificationsOn) Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Le notifiche sono disattivate.", color = MaterialTheme.colorScheme.error, fontSize = 13.sp, modifier = Modifier.weight(1f))
                     TextButton({

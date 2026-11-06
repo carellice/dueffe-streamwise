@@ -5,7 +5,8 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 import type { Media, Person, Provider, ReleaseFollow } from '../../../shared/model.ts'
 import { isSeries, newReleaseFollow } from '../../../shared/model.ts'
 import * as lib from '../../../shared/library.ts'
-import { describe, initialize, worthFollowing } from '../../../shared/follows.ts'
+import { describe, initialize, upcomingDate, worthFollowing } from '../../../shared/follows.ts'
+import { addReleaseToCalendar } from '../lib/calendar.ts'
 import { todayRome } from '../../../shared/dates.ts'
 import type { ReleaseInfo } from '../../../shared/tmdb.ts'
 import { useBackHandler } from '../lib/back.ts'
@@ -307,6 +308,12 @@ function FollowReleaseCard({ media }: { media: Media }) {
                 ? 'Ti avviso con una notifica il giorno di uscita di ogni nuovo episodio e quando viene annunciata una nuova stagione.'
                 : 'Ti avviso con una notifica il giorno dell’uscita in Italia e quando arriva in streaming in abbonamento.'}
             </div>
+            {state && upcomingDate(state, today) !== '' && (
+              <Press pressed={0.96} onClick={() => addReleaseToCalendar(state, upcomingDate(state, today))} className="row"
+                style={{ marginTop: 8, gap: 6, color: accent, fontSize: 13, fontWeight: 600, padding: '6px 0' }}>
+                <Icon name="calendar" size={17} /> {isSeries(media) ? 'Aggiungi il prossimo episodio al calendario' : 'Aggiungi l’uscita al calendario'}
+              </Press>
+            )}
             {followed && !notificationsOn && (
               <div className="row" style={{ marginTop: 6 }}>
                 <span className="grow" style={{ color: 'var(--error)', fontSize: 13 }}>Le notifiche sono disattivate.</span>
