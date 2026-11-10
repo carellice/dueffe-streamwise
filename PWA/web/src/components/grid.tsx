@@ -46,7 +46,7 @@ export function PosterGrid({ media, onOpen, onLongPress, onEnd, loadingMore = fa
     <div className="scroll" style={{ flex: 1, minHeight: 0, ...style }}>
       <div style={{ padding }}>
         {header}
-        <div style={{ display: 'grid', gridTemplateColumns: columns ? `repeat(${columns}, minmax(0, 1fr))` : 'repeat(auto-fill, minmax(104px, 1fr))', columnGap, rowGap }}>
+        <div style={{ display: 'grid', gridTemplateColumns: columns ? `repeat(${columns}, minmax(0, 1fr))` : 'repeat(auto-fill, minmax(var(--poster-min, 104px), 1fr))', columnGap, rowGap }}>
           {media.map((m, index) => (
             <Reveal key={m.id} id={revealPrefix ? `${revealPrefix}:${m.id}` : undefined} delay={(index % 12) * 40} distance={24}>
               <SearchPosterCard media={m} onOpen={onOpen} onLongPress={onLongPress} releaseDates={releaseDates} />

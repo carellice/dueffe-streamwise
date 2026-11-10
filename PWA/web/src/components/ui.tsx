@@ -152,7 +152,7 @@ export type NavItem = { label: string; icon: IconName }
 /** Floating glass navigation pill: the active destination widens and reveals its label. */
 export function FloatingNavBar({ items, selected, onSelect }: { items: NavItem[]; selected: number; onSelect: (i: number) => void }) {
   return (
-    <div className="nav-pad" style={{ padding: '10px 18px', paddingBottom: 'calc(10px + var(--safe-bottom))' }}>
+    <div className="nav-pad dock" style={{ padding: '10px 18px', paddingBottom: 'calc(10px + var(--safe-bottom))' }}>
       <div className="glass row" style={{ ['--glass-alpha' as string]: 0.94, borderRadius: 33, padding: 6, gap: 4, boxShadow: '0 14px 28px rgba(0,0,0,.55)', overflow: 'visible' }}>
         {items.map((item, index) => {
           const active = index === selected

@@ -178,7 +178,7 @@ export function OnboardingScreen({ onImportBackup, onComplete }: { onImportBacku
       <motion.div className="fill" style={{ zIndex: 70, background: 'linear-gradient(180deg, #1A1414, #0A0B10, #16110F)', pointerEvents: 'auto', overflow: 'hidden' }}
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={tween(240)}>
         <div style={{ position: 'absolute', left: -90, bottom: -95, width: 300, height: 300, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,59,78,.33), transparent 70%)' }} />
-        <div className="fill col status-pad nav-pad" style={{ padding: '10px 24px 20px', paddingTop: 'calc(10px + var(--safe-top))', paddingBottom: 'calc(20px + var(--safe-bottom))', alignItems: 'center' }}>
+        <div className="fill col status-pad nav-pad desk-narrow" style={{ padding: '10px 24px 20px', paddingTop: 'calc(10px + var(--safe-top))', paddingBottom: 'calc(20px + var(--safe-bottom))', alignItems: 'center' }}>
           <div className="row" style={{ width: '100%', height: 38, justifyContent: 'flex-end' }}>
             {page < last && <button onClick={onComplete} style={{ padding: '0 4px', height: 38, color: '#D2C8CE', fontSize: 14 }}>Salta</button>}
           </div>
