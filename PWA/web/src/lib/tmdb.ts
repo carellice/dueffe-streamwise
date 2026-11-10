@@ -1,5 +1,5 @@
 import { TmdbApi } from '../../../shared/tmdb.ts'
-import { ApiError } from './api.ts'
+import { ApiError, sessionHeaders } from './api.ts'
 
 // TmdbApi in the browser: every request goes to the server's proxy, which adds the API key.
 // Answers are kept for the session, like the native client's in-memory caches.
@@ -14,7 +14,8 @@ async function get(path: string, params?: Record<string, string> | null): Promis
   const request = (async () => {
     let response: Response
     try {
-      response = await fetch(url, { credentials: 'same-origin' })
+      // Senza la sessione, dietro il proxy HTTPS di Tailscale il server rispondeva 401 e Scopri restava vuota.
+      response = await fetch(url, { credentials: 'same-origin', headers: sessionHeaders() })
     } catch {
       throw new ApiError(0, 'Server non raggiungibile')
     }

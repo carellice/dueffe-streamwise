@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { api, ApiError } from './api.ts'
+import { api, ApiError, sessionHeaders } from './api.ts'
 import {
   entryToJson, personFollowToJson, personKey, releaseFollowToJson, defaultPrefs,
   type AppState, type LibraryEntry, type Media, type PersonFollow, type Prefs, type Provider, type ReleaseFollow, type TvReminder,
@@ -214,7 +214,7 @@ export async function importBackup(text: string): Promise<boolean> {
 }
 
 export async function exportBackup(): Promise<string> {
-  const response = await fetch('/api/backup', { credentials: 'same-origin' })
+  const response = await fetch('/api/backup', { credentials: 'same-origin', headers: sessionHeaders() })
   if (!response.ok) throw new ApiError(response.status, 'Esportazione non riuscita')
   return response.text()
 }

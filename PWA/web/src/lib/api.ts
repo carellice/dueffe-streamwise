@@ -17,6 +17,12 @@ function sessionToken(): string | null {
   try { return localStorage.getItem(SESSION_KEY) } catch { return null }
 }
 
+/** L'intestazione con la sessione, per le richieste fatte senza [api] (catalogo TMDB, backup). */
+export function sessionHeaders(): Record<string, string> {
+  const session = sessionToken()
+  return session ? { 'X-Session': session } : {}
+}
+
 function keepSession(value: string | null) {
   try {
     if (value) localStorage.setItem(SESSION_KEY, value)
