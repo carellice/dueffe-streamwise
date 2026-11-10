@@ -3258,7 +3258,8 @@ private fun GenreScreen(type: String, genreId: Int, genreName: String, api: Tmdb
     var fullCastVisible by remember { mutableStateOf(false) }
     Column(Modifier.padding(top = topPadding)) {
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            // Colore esplicito: nella home non c'è una Surface che lo dia e il titolo usciva nero sul fondo scuro.
+            Text(title, color = Ink, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             TextButton({ fullCastVisible = true }) { Text("Tutti (${people.size})") }
         }
         LazyRow(modifier = Modifier.height(120.dp), contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
