@@ -9,10 +9,27 @@ export class ApiError extends Error {
 /** Fired when the server asks for the password again. */
 export const authEvents = new EventTarget()
 
+// Il token della sessione, mandato in ogni richiesta oltre al cookie: dietro il proxy HTTPS di
+// Tailscale il cookie poteva non arrivare al server.
+const SESSION_KEY = 'streamwise.session'
+
+function sessionToken(): string | null {
+  try { return localStorage.getItem(SESSION_KEY) } catch { return null }
+}
+
+function keepSession(value: string | null) {
+  try {
+    if (value) localStorage.setItem(SESSION_KEY, value)
+    else localStorage.removeItem(SESSION_KEY)
+  } catch { /* senza localStorage resta il cookie */ }
+}
+
 export async function api<T>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
   const { json, ...rest } = init
   const headers = new Headers(rest.headers)
   if (json !== undefined) headers.set('Content-Type', 'application/json')
+  const session = sessionToken()
+  if (session) headers.set('X-Session', session)
   let response: Response
   try {
     response = await fetch(path, {
@@ -32,5 +49,7 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown 
     const message = (body as { error?: string } | null)?.error ?? `Errore ${response.status}`
     throw new ApiError(response.status, message)
   }
+  if (path === '/api/login' || path === '/api/register') keepSession((body as { token?: string } | null)?.token ?? null)
+  if (path === '/api/logout') keepSession(null)
   return body as T
 }

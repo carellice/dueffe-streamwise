@@ -59,7 +59,8 @@ function cookies(req: IncomingMessage): Record<string, string> {
   const out: Record<string, string> = {}
   for (const part of (req.headers.cookie ?? '').split(';')) {
     const [k, ...v] = part.trim().split('=')
-    if (k) out[k] = decodeURIComponent(v.join('='))
+    // Un cookie malformato di un'altra app sullo stesso indirizzo (porte diverse di Tailscale) non deve far fallire la richiesta.
+    if (k) try { out[k] = decodeURIComponent(v.join('=')) } catch { out[k] = v.join('=') }
   }
   return out
 }
@@ -71,12 +72,20 @@ const secure = (req: IncomingMessage) =>
 
 const SESSION = 'streamwise_session'
 
-const sessionUser = (req: IncomingMessage) => accounts.sessionUser(cookies(req)[SESSION])
+/**
+ * Il token della sessione: dall'header X-Session, che il browser manda sempre, o dal cookie. Dietro il
+ * proxy HTTPS di Tailscale il cookie poteva non tornare indietro e ogni richiesta finiva in 401.
+ */
+const token = (req: IncomingMessage) => (req.headers['x-session'] as string | undefined) || cookies(req)[SESSION]
 
-function startSession(req: IncomingMessage, res: ServerResponse, userId: number) {
-  const token = accounts.startSession(userId)
+const sessionUser = (req: IncomingMessage) => accounts.sessionUser(token(req)) ?? accounts.sessionUser(cookies(req)[SESSION])
+
+/** Apre la sessione: il token va nel cookie e torna anche nella risposta, per l'header X-Session. */
+function startSession(req: IncomingMessage, res: ServerResponse, userId: number): string {
+  const value = accounts.startSession(userId)
   const flags = `Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 400}${secure(req) ? '; Secure' : ''}`
-  res.setHeader('Set-Cookie', `${SESSION}=${token}; ${flags}`)
+  res.setHeader('Set-Cookie', `${SESSION}=${value}; ${flags}`)
+  return value
 }
 
 function clearSession(res: ServerResponse) {
@@ -148,8 +157,7 @@ route('POST', '/api/register', async (req, res) => {
   const { username, password } = await readJson<{ username?: string; password?: string }>(req)
   accountCall(() => {
     const user = accounts.register(String(username ?? ''), String(password ?? ''))
-    startSession(req, res, user.id)
-    json(res, 200, { username: user.username })
+    json(res, 200, { username: user.username, token: startSession(req, res, user.id) })
   })
 })
 
@@ -160,13 +168,12 @@ route('POST', '/api/login', async (req, res) => {
     await new Promise((r) => setTimeout(r, 800))
     throw new HttpError(401, 'Nome utente o password sbagliati')
   }
-  startSession(req, res, user.id)
-  json(res, 200, { username: user.username })
+  json(res, 200, { username: user.username, token: startSession(req, res, user.id) })
 })
 
 route('POST', '/api/logout', (req, res) => {
-  const token = cookies(req)[SESSION]
-  if (token) accounts.endSession(token)
+  const value = token(req)
+  if (value) accounts.endSession(value)
   clearSession(res)
   json(res, 200, { ok: true })
 })
