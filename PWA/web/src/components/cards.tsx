@@ -8,6 +8,7 @@ import { formatIt } from '../../../shared/dates.ts'
 import { entryOf } from '../lib/store.ts'
 import type { IconName } from '../lib/icons.gen.ts'
 import { emphasized, fastOutSlowIn, spring, tween } from './motion.ts'
+import { ArrowButton } from './hscroll.tsx'
 import { Icon, LoadingSkeleton, MetaPill, Press, PulsingDot, RemoteImage, SectionHeader, LightSweep, Reveal, Spinner, boundsOf, rating, type Rect } from './ui.tsx'
 
 /** What a tapped artwork looks like on screen, so a page can grow out of exactly that image. */
@@ -530,6 +531,10 @@ export function FeaturedCarousel({ media, type, onOpen, isSaved, onToggle, pause
           <HeroPage key={index} index={index} item={media[((index % media.length) + media.length) % media.length]} position={position}
             step={step} width={width - 40} type={type} zoom={zoom} onOpen={onOpen} isSaved={isSaved} onToggle={onToggle} />
         ))}
+        {media.length > 1 && <>
+          <ArrowButton back onClick={() => goTo(page - 1, 0.6)} style={{ position: 'absolute', left: 30, top: 230 }} />
+          <ArrowButton onClick={() => goTo(page + 1, 0.6)} style={{ position: 'absolute', right: 30, top: 230 }} />
+        </>}
       </div>
       {media.length > 1 && (
         <div className="row" style={{ justifyContent: 'center', paddingTop: 4 }}>

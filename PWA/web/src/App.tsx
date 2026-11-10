@@ -16,6 +16,7 @@ import { ContainerTransform, ExpandingPage } from './components/Transform.tsx'
 import { AuroraBackground, FloatingNavBar, RemoteImage, Spinner, type Rect } from './components/ui.tsx'
 import { AiCardArt, FIND_TITLE, FIND_TITLE_SUBTITLE, type ArtSource, type OpenMedia } from './components/cards.tsx'
 import { ToastHost } from './components/overlay.tsx'
+import { HScrollArrows } from './components/hscroll.tsx'
 import { HomeScreen, homeReselect } from './screens/Home.tsx'
 import { DiscoverScreen } from './screens/Discover.tsx'
 import { TvGuideScreen } from './screens/Guide.tsx'
@@ -325,6 +326,7 @@ export function App() {
           ) : <StreamWiseApp version={session.version} />}
       <div id="overlay-root" className="fill" style={{ pointerEvents: 'none', zIndex: 50 }} />
       <ToastHost />
+      <HScrollArrows />
     </div>
   )
 }
