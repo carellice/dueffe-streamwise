@@ -619,6 +619,7 @@ export function DetailScreen({ initial, backEnabled, onClose, onOpen, onAction, 
             {refreshing ? <Spinner size={20} stroke={2} color="#fff" /> : <Icon name="refresh" size={21} color="#fff" />}
           </Press>
           {inList && <GlassIconButton icon="pushPin" label={pinned ? 'Rimuovi dai fissati' : 'Fissa in cima alla home'} highlighted={pinned} onClick={() => void saveEntry(lib.togglePinned(entryOf(media)))} />}
+          <GlassIconButton icon="share" label="Condividi" onClick={() => void shareTitle(media)} />
           <GlassIconButton icon="visibilityOff" label="Nascondi" onClick={() => setHideConfirm(true)} />
         </div>
       </motion.div>
@@ -702,4 +703,16 @@ function PosterViewer({ open, url, onClose }: { open: boolean; url: string; onCl
       )}
     </AnimatePresence>
   )
+}
+
+/** Shares the title with its TMDB link, which StreamWise for Android opens on the title; the link is copied where sharing is missing. */
+async function shareTitle(media: Media) {
+  const url = `https://www.themoviedb.org/${media.mediaType}/${media.tmdbId}`
+  const title = media.year && media.year !== 'S.D.' ? `${media.title} (${media.year})` : media.title
+  try {
+    if (navigator.share) await navigator.share({ title, text: title, url })
+    else { await navigator.clipboard.writeText(`${title}\n${url}`); showToast('Link copiato') }
+  } catch (e) {
+    if ((e as Error).name !== 'AbortError') showToast('Condivisione non riuscita')
+  }
 }

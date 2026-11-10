@@ -35,6 +35,16 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- A shared title: its TMDB link opens the title here, for whoever has StreamWise. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="www.themoviedb.org" />
+                <data android:scheme="https" android:host="themoviedb.org" />
+                <data android:pathPattern="/movie/.*" />
+                <data android:pathPattern="/tv/.*" />
+            </intent-filter>
         </activity>
         <provider android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.updates" android:exported="false" android:grantUriPermissions="true">

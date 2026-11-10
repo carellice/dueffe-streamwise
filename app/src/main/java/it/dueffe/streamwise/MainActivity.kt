@@ -241,6 +241,11 @@ class MainActivity : ComponentActivity() {
             runCatching { Models.Media.from(org.json.JSONObject(raw)) }.getOrNull()?.takeIf { it.id.isNotEmpty() }?.let { mediaRequest = it to System.nanoTime() }
             intent.removeExtra(EXTRA_OPEN_MEDIA)
         }
+        // A shared TMDB link opens its title, like a notification that carries only the id.
+        if (includeMedia && intent.action == android.content.Intent.ACTION_VIEW) mediaIdOfLink(intent.dataString)?.let { id ->
+            intent.putExtra(EXTRA_OPEN_MEDIA_ID, id)
+            intent.data = null
+        }
         // Notifications from the server (server mode) carry only the id: the detail page loads the rest.
         if (includeMedia) intent.getStringExtra(EXTRA_OPEN_MEDIA_ID)?.let { id ->
             val known = LibraryStore(this).all().firstOrNull { it.media.id == id }?.media ?: ReleaseFollows.get(this, id)?.media
@@ -3072,6 +3077,7 @@ private fun DetailScreen(
                     listVersion++
                     onRefresh()
                 }
+                GlassIconButton(R.drawable.ic_share, "Condividi") { detailScope.launch { shareMedia(context, media) } }
                 GlassIconButton(R.drawable.ic_visibility_off, "Nascondi") { hideConfirm = true }
             }
         }
