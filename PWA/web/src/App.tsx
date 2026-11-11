@@ -317,10 +317,10 @@ export function App() {
   void offline; void prefs; void tmdb
   return (
     <div className="app">
-      {session == null ? <div className="fill center" style={{ background: 'var(--bg)' }}><Spinner size={54} stroke={5} /></div>
+      {session == null ? <div className="fill center" style={{ background: 'var(--page)' }}><Spinner size={54} stroke={5} /></div>
         : session.username == null ? <LoginScreen onLoggedIn={(username) => { setSession({ ...session, username }); start(username) }} />
           : data == null ? (
-            <div className="fill col center" style={{ background: 'var(--bg)', gap: 16, padding: 32, textAlign: 'center' }}>
+            <div className="fill col center" style={{ background: 'var(--page)', gap: 16, padding: 32, textAlign: 'center' }}>
               {loadError ? <><span style={{ color: 'var(--muted)', fontSize: 17 }}>{loadError}</span><button onClick={() => void refresh(true)} style={{ color: 'var(--primary)', fontWeight: 700, height: 40 }}>Riprova</button></> : <Spinner size={54} stroke={5} />}
             </div>
           ) : <StreamWiseApp version={session.version} />}

@@ -136,7 +136,7 @@ import java.util.Locale
 import java.util.UUID
 
 private val DeepCrimson = Sw.Red
-private val SoftCrimson = Sw.Accent
+private val SoftCrimson get() = Sw.Accent
 private val LikeGreen = Color(0xFF3DDC97)
 private val DislikeRed = Color(0xFFFF5C7A)
 private val FollowGold = Sw.Amber
@@ -271,6 +271,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         enableEdgeToEdge()
+        Skin.load(this)
         val store = LibraryStore(this)
         val api = TmdbApi(BuildConfig.TMDB_API_KEY)
         setContent {
@@ -316,13 +317,13 @@ class MainActivity : ComponentActivity() {
 private fun StreamWiseTheme(content: @Composable () -> Unit) {
     val dark = true
     val scheme = if (dark) darkColorScheme(
-        primary = Color(0xFFE5243A),
+        primary = if (Skin.skeu) Color(0xFFD23A3F) else Color(0xFFE5243A),
         onPrimary = Color.White,
-        primaryContainer = Color(0xFF3B161B),
+        primaryContainer = if (Skin.skeu) Color(0xFF4A2A1E) else Color(0xFF3B161B),
         onPrimaryContainer = Color(0xFFFFDAD2),
         secondary = SoftCrimson,
         onSecondary = Color(0xFF3A0E06),
-        secondaryContainer = Color(0xFF331D20),
+        secondaryContainer = if (Skin.skeu) Color(0xFF3F2C1E) else Color(0xFF331D20),
         onSecondaryContainer = Color(0xFFFFDAD2),
         tertiary = Sw.Amber,
         onTertiary = Color(0xFF3A2600),
@@ -336,13 +337,13 @@ private fun StreamWiseTheme(content: @Composable () -> Unit) {
         onSurfaceVariant = Sw.Muted,
         surfaceTint = Color.Transparent,
         surfaceDim = Sw.Background,
-        surfaceBright = Color(0xFF2A2E39),
-        surfaceContainerLowest = Color(0xFF07080C),
-        surfaceContainerLow = Color(0xFF111319),
+        surfaceBright = if (Skin.skeu) Color(0xFF4A3A2F) else Color(0xFF2A2E39),
+        surfaceContainerLowest = if (Skin.skeu) Color(0xFF120C09) else Color(0xFF07080C),
+        surfaceContainerLow = if (Skin.skeu) Color(0xFF261B16) else Color(0xFF111319),
         surfaceContainer = Sw.Surface,
-        surfaceContainerHigh = Color(0xFF1A1D26),
+        surfaceContainerHigh = if (Skin.skeu) Color(0xFF35281F) else Color(0xFF1A1D26),
         surfaceContainerHighest = Sw.Raised,
-        outline = Color(0xFF4B505E),
+        outline = if (Skin.skeu) Color(0xFF7A6250) else Color(0xFF4B505E),
         outlineVariant = Sw.Outline,
         inversePrimary = Color(0xFFB3261E),
         error = Color(0xFFFF6B7D)
@@ -371,14 +372,26 @@ private fun StreamWiseTheme(content: @Composable () -> Unit) {
         inversePrimary = Color(0xFFFFB1BF),
         error = Color(0xFFBA1A1A)
     )
+    val base = MaterialTheme.typography
+    // Skeuomorphic skin: serif display type and letterpress text, as if stamped into the leather.
+    val skeu = Skin.skeu
+    val press = if (skeu) androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = .75f), androidx.compose.ui.geometry.Offset(0f, 2.5f), 2f) else null
+    val display = if (skeu) androidx.compose.ui.text.font.FontFamily.Serif else null
+    fun androidx.compose.ui.text.TextStyle.skin(serif: Boolean) = if (!skeu) this else copy(shadow = press, fontFamily = if (serif) display else fontFamily, letterSpacing = if (serif) 0.sp else letterSpacing)
     val typography = Typography(
-        displaySmall = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-1.4).sp, lineHeight = 40.sp),
-        headlineLarge = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Black, letterSpacing = (-0.9).sp),
-        headlineMedium = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.5).sp),
-        headlineSmall = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.3).sp),
-        titleLarge = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.3).sp),
-        titleMedium = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-        labelLarge = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+        displaySmall = base.displaySmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-1.4).sp, lineHeight = 40.sp).skin(true),
+        headlineLarge = base.headlineLarge.copy(fontWeight = FontWeight.Black, letterSpacing = (-0.9).sp).skin(true),
+        headlineMedium = base.headlineMedium.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.5).sp).skin(true),
+        headlineSmall = base.headlineSmall.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.3).sp).skin(true),
+        titleLarge = base.titleLarge.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.3).sp).skin(true),
+        titleMedium = base.titleMedium.copy(fontWeight = FontWeight.Bold).skin(false),
+        titleSmall = base.titleSmall.skin(false),
+        bodyLarge = base.bodyLarge.skin(false),
+        bodyMedium = base.bodyMedium.skin(false),
+        bodySmall = base.bodySmall.skin(false),
+        labelLarge = base.labelLarge.copy(fontWeight = FontWeight.Bold).skin(false),
+        labelMedium = base.labelMedium.skin(false),
+        labelSmall = base.labelSmall.skin(false)
     )
     val view = LocalView.current
     SideEffect {
@@ -4382,7 +4395,7 @@ private fun OnboardingScreen(onImportBackup: () -> Unit, onComplete: () -> Unit)
     Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         BackHandler { if (page > 0) page-- }
         Surface(Modifier.fillMaxSize(), color = Sw.Background) {
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF1A1414), Sw.Background, Color(0xFF16110F))))) {
+            Box(Modifier.fillMaxSize().then(if (Skin.skeu) Modifier else Modifier.background(Brush.verticalGradient(listOf(Color(0xFF1A1414), Sw.Background, Color(0xFF16110F)))))) {
                 Box(Modifier.align(Alignment.BottomStart).offset(x = (-90).dp, y = 95.dp).size(300.dp)
                     .background(Brush.radialGradient(listOf(Color(0x55FF3B4E), Color.Transparent)), CircleShape))
                 Column(
@@ -4858,6 +4871,16 @@ private fun SettingsScreen(
                                     selectedBorderColor = Crimson
                                 )
                             )
+                        }
+                    }
+                }
+                item {
+                    val context = LocalContext.current
+                    Surface(color = Panel, shape = RoundedCornerShape(24.dp), border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                        Column(Modifier.padding(18.dp)) {
+                            Text("Stile grafico", style = MaterialTheme.typography.titleLarge, color = Ink)
+                            Text("Moderno, oppure skeuomorfico: pelle cucita, ottone e bottoni lucidi.", color = Muted, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp))
+                            SegmentedPills(listOf("Moderno", "Skeuomorfico"), if (Skin.skeu) 1 else 0, Modifier.fillMaxWidth()) { Skin.set(context, it == 1) }
                         }
                     }
                 }

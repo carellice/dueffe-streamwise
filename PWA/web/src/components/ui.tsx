@@ -3,6 +3,7 @@ import { AnimatePresence, animate, motion, useMotionValue, useTransform, type HT
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { icons, type IconName } from '../lib/icons.gen.ts'
 import { decelerate, haptic, spring, tween, Stiffness } from './motion.ts'
+import { useSkeu } from '../lib/skin.ts'
 
 export type Rect = { left: number; top: number; width: number; height: number }
 
@@ -97,7 +98,7 @@ export function GlassIconButton({ icon, label, size = 44, tint = 'var(--ink)', h
 /** Equal-width segmented control with a springy gradient thumb. */
 export function SegmentedPills({ options, selected, height = 44, onSelect, style }: { options: string[]; selected: number; height?: number; onSelect: (i: number) => void; style?: CSSProperties }) {
   return (
-    <div className="glass" style={{ ['--glass-alpha' as string]: 0.85, height, borderRadius: height / 2, padding: 4, position: 'relative', ...style }}>
+    <div className="glass groove" style={{ ['--glass-alpha' as string]: 0.85, height, borderRadius: height / 2, padding: 4, position: 'relative', ...style }}>
       <div style={{ position: 'relative', height: '100%' }}>
         <motion.div
           initial={false}
@@ -151,6 +152,7 @@ export type NavItem = { label: string; icon: IconName }
 
 /** Floating glass navigation pill: the active destination widens and reveals its label. */
 export function FloatingNavBar({ items, selected, onSelect }: { items: NavItem[]; selected: number; onSelect: (i: number) => void }) {
+  const activeInk = useSkeu() ? 'var(--accent)' : '#fff'
   return (
     <div className="nav-pad dock" style={{ padding: '10px 18px', paddingBottom: 'calc(10px + var(--safe-bottom))' }}>
       <div className="glass row" style={{ ['--glass-alpha' as string]: 0.94, borderRadius: 33, padding: 6, gap: 4, boxShadow: '0 14px 28px rgba(0,0,0,.55)', overflow: 'visible' }}>
@@ -161,10 +163,10 @@ export function FloatingNavBar({ items, selected, onSelect }: { items: NavItem[]
               style={{ flexBasis: 0, minWidth: 0, height: 54 }}>
               <Press pressed={0.9} onClick={() => { if (!active) haptic(); onSelect(index) }} className="center"
                 style={{ height: '100%', borderRadius: 27, position: 'relative', overflow: 'hidden' }}>
-                <motion.div initial={false} animate={{ opacity: active ? 1 : 0 }} transition={tween(280)} className="fill" style={{ background: 'var(--brand)', borderRadius: 27 }} />
+                <motion.div initial={false} animate={{ opacity: active ? 1 : 0 }} transition={tween(280)} className="fill tab-fill" style={{ background: 'var(--brand)', borderRadius: 27 }} />
                 <div className="row" style={{ position: 'relative' }}>
                   <motion.div initial={false} animate={{ scale: active ? 1.08 : 1 }} transition={spring(0.35, 500)}>
-                    <Icon name={item.icon} size={23} color={active ? '#fff' : 'var(--muted)'} />
+                    <Icon name={item.icon} size={23} color={active ? activeInk : 'var(--muted)'} />
                   </motion.div>
                   <AnimatePresence initial={false}>
                     {active && (
@@ -173,7 +175,7 @@ export function FloatingNavBar({ items, selected, onSelect }: { items: NavItem[]
                         animate={{ opacity: 1, width: 'auto', transition: { width: tween(260), opacity: tween(220, undefined, 80) } }}
                         exit={{ opacity: 0, width: 0, transition: { width: tween(220), opacity: tween(90) } }}
                         style={{ overflow: 'hidden', whiteSpace: 'nowrap', display: 'block' }}>
-                        <span style={{ display: 'block', paddingLeft: 7, color: '#fff', fontWeight: 700, fontSize: 13 }}>{item.label}</span>
+                        <span style={{ display: 'block', paddingLeft: 7, color: activeInk, fontWeight: 700, fontSize: 13 }}>{item.label}</span>
                       </motion.span>
                     )}
                   </AnimatePresence>
@@ -240,6 +242,10 @@ export function PulsingDot({ color, size = 8, style }: { color: string; size?: n
 
 /** Slowly drifting ember glows behind the app content (16 s, back and forth). */
 export function AuroraBackground() {
+  return useSkeu() ? <div className="fill" style={{ background: 'var(--page)' }} /> : <Aurora />
+}
+
+function Aurora() {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     const canvas = ref.current!

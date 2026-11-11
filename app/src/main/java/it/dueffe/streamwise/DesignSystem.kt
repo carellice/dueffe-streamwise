@@ -38,6 +38,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.composed
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -51,6 +57,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.ui.geometry.RoundRect
@@ -63,34 +70,146 @@ import kotlin.math.roundToInt
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** Design tokens: slate surfaces with a deep cinema-red accent gradient. */
+/** Which look the app wears: the modern slate one or the skeuomorphic leather-and-brass one. Saved per device. */
+internal object Skin {
+    var skeu by mutableStateOf(false)
+        private set
+    private fun prefs(context: android.content.Context) = context.getSharedPreferences("streamwise-ui", android.content.Context.MODE_PRIVATE)
+    fun load(context: android.content.Context) { skeu = prefs(context).getBoolean("skeuomorphic", false) }
+    fun set(context: android.content.Context, on: Boolean) { skeu = on; prefs(context).edit().putBoolean("skeuomorphic", on).apply() }
+}
+
+/** Design tokens: slate surfaces with a deep cinema-red accent gradient, or warm leather with brass in the skeuomorphic skin. */
 internal object Sw {
-    val Background = Color(0xFF0A0B10)
-    val Surface = Color(0xFF14161E)
-    val Raised = Color(0xFF1D2029)
-    val Outline = Color(0xFF2C303C)
-    val Ink = Color(0xFFF7F5F3)
-    val Muted = Color(0xFFA4A8B5)
+    val Background get() = if (Skin.skeu) Color(0xFF1B120E) else Color(0xFF0A0B10)
+    val Surface get() = if (Skin.skeu) Color(0xFF2E221C) else Color(0xFF14161E)
+    val Raised get() = if (Skin.skeu) Color(0xFF3D2E25) else Color(0xFF1D2029)
+    val Outline get() = if (Skin.skeu) Color(0xFF5A4636) else Color(0xFF2C303C)
+    val Ink get() = if (Skin.skeu) Color(0xFFF6EBD6) else Color(0xFFF7F5F3)
+    val Muted get() = if (Skin.skeu) Color(0xFFC2AE92) else Color(0xFFA4A8B5)
     val Red = Color(0xFFD7142B)
     val Coral = Color(0xFFFF4B45)
-    val Accent = Color(0xFFFF5964)
+    val Accent get() = if (Skin.skeu) Color(0xFFE6BE6E) else Color(0xFFFF5964)
     val Amber = Color(0xFFFFC24D)
     val Blue = Color(0xFF4C8DFF)
-    val Brand = Brush.linearGradient(listOf(Red, Coral))
+    val Brand get() = if (Skin.skeu) Brush.verticalGradient(listOf(Color(0xFFE6474E), Color(0xFFB8141F), Color(0xFF8A0B14))) else Brush.linearGradient(listOf(Red, Coral))
     val Emphasized = CubicBezierEasing(.2f, 0f, 0f, 1f)
     val Decelerate = CubicBezierEasing(.05f, .7f, .1f, 1f)
 }
 
-internal fun Modifier.brandGlow(shape: Shape, elevation: Dp = 10.dp): Modifier =
-    shadow(elevation, shape, ambientColor = Sw.Red.copy(alpha = .6f), spotColor = Sw.Coral.copy(alpha = .7f))
+internal fun Modifier.brandGlow(shape: Shape, elevation: Dp = 10.dp): Modifier = composed {
+    if (Skin.skeu) glossyCandy(shape, elevation)
+    else shadow(elevation, shape, ambientColor = Sw.Red.copy(alpha = .6f), spotColor = Sw.Coral.copy(alpha = .7f))
         .background(Sw.Brand, shape)
         .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .32f), Color.White.copy(alpha = .04f))), shape)
+}
 
-/** Translucent slate surface with a hairline highlight on the top edge. */
-internal fun Modifier.glass(shape: Shape, alpha: Float = .78f): Modifier =
-    clip(shape)
+/** Translucent slate surface with a hairline highlight on the top edge; an embossed leather button in the skeuomorphic skin. */
+internal fun Modifier.glass(shape: Shape, alpha: Float = .78f): Modifier = composed {
+    if (Skin.skeu) skeuRaised(shape, stitched = false, elevation = 4.dp)
+    else clip(shape)
         .background(Sw.Surface.copy(alpha = alpha))
         .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .16f), Color.White.copy(alpha = .03f))), shape)
+}
+
+// ---- Skeuomorphic skin: leather, stitching, glossy candy buttons, engraved grooves. ----
+
+private val SkeuShadow = Color(0xFF0B0604)
+
+/** Glossy red lozenge, lit from above, with a glass highlight over its top half. */
+internal fun Modifier.glossyCandy(shape: Shape, elevation: Dp = 8.dp): Modifier =
+    shadow(elevation.coerceAtMost(10.dp), shape, ambientColor = SkeuShadow, spotColor = SkeuShadow)
+        .background(Sw.Brand, shape)
+        .drawWithContent {
+            drawContent()
+            val outline = shape.createOutline(size, layoutDirection, this)
+            val path = androidx.compose.ui.graphics.Path().apply { addOutline(outline) }
+            clipPath(path) {
+                // Buttons get the full candy gloss; tall cards a softer sheen, so their text stays readable.
+                val tall = size.height > 90.dp.toPx()
+                val gloss = if (tall) 34.dp.toPx() else size.height * .5f
+                drawRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = if (tall) .22f else .38f), Color.White.copy(alpha = if (tall) .03f else .1f)), 0f, gloss), size = size.copy(height = gloss))
+            }
+        }
+        .border(1.dp, Brush.verticalGradient(listOf(Color(0xFFFF9A9A).copy(alpha = .8f), Color(0xFF4A0309))), shape)
+
+/** A raised piece of leather: lit from the top, shadowed underneath, optionally with saddle stitching along the edge. */
+internal fun Modifier.skeuRaised(shape: Shape, stitched: Boolean = true, elevation: Dp = 6.dp, top: Color = Color(0xFF4A382D), bottom: Color = Color(0xFF2A1F19)): Modifier =
+    shadow(elevation, shape, ambientColor = SkeuShadow, spotColor = SkeuShadow)
+        .background(Brush.verticalGradient(listOf(top, bottom)), shape)
+        .border(1.dp, Brush.verticalGradient(listOf(Color(0xFFB59A7C).copy(alpha = .45f), Color.Black.copy(alpha = .7f))), shape)
+        .then(if (stitched) Modifier.stitching(shape) else Modifier)
+
+/** Dashed thread a few dp inside the shape's edge, with a dark hole shadow under each stitch. */
+internal fun Modifier.stitching(shape: Shape, inset: Dp = 5.dp, color: Color = Color(0xFFD9B98A)): Modifier = drawWithContent {
+    drawContent()
+    val i = inset.toPx()
+    // Small pieces (badges, chips) stay plain: a seam on them reads as noise.
+    if (size.width < 72.dp.toPx() || size.height < 56.dp.toPx()) return@drawWithContent
+    val inner = size.copy(width = size.width - i * 2, height = size.height - i * 2)
+    val outline = shape.createOutline(inner, layoutDirection, this)
+    val dash = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 3.5.dp.toPx()))
+    translate(i, i + 1.dp.toPx()) { drawOutline(outline, Color.Black.copy(alpha = .55f), style = androidx.compose.ui.graphics.drawscope.Stroke(1.4.dp.toPx(), pathEffect = dash)) }
+    translate(i, i) { drawOutline(outline, color.copy(alpha = .55f), style = androidx.compose.ui.graphics.drawscope.Stroke(1.2.dp.toPx(), pathEffect = dash)) }
+}
+
+/** A channel pressed into the leather: dark inside, with an inner shadow on top and a light lip at the bottom. */
+internal fun Modifier.skeuGroove(shape: Shape): Modifier =
+    clip(shape)
+        .background(Brush.verticalGradient(listOf(Color(0xFF120B08), Color(0xFF22180F))))
+        .drawWithContent {
+            drawContent()
+            drawRect(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .6f), Color.Transparent), 0f, 6.dp.toPx()))
+        }
+        .border(1.dp, Brush.verticalGradient(listOf(Color.Black.copy(alpha = .8f), Color(0xFFB59A7C).copy(alpha = .35f))), shape)
+
+/** The leather the whole app sits on, lit by a warm spot from above and darkened at the edges. */
+@Composable
+internal fun LeatherBackdrop(modifier: Modifier = Modifier) {
+    val leather = androidx.compose.ui.graphics.ImageBitmap.imageResource(R.drawable.skeu_leather)
+    Canvas(modifier.fillMaxSize()) {
+        drawRect(Color(0xFF1B120E))
+        // Cover-fit the texture so no tile seam is ever visible.
+        val scale = maxOf(size.width / leather.width, size.height / leather.height)
+        val w = (leather.width * scale).roundToInt()
+        val h = (leather.height * scale).roundToInt()
+        drawImage(leather, dstOffset = androidx.compose.ui.unit.IntOffset(((size.width - w) / 2).roundToInt(), ((size.height - h) / 2).roundToInt()), dstSize = androidx.compose.ui.unit.IntSize(w, h))
+        drawRect(Brush.radialGradient(listOf(Color(0xFFFFD9A0).copy(alpha = .13f), Color.Transparent), Offset(size.width / 2, size.height * .05f), size.width * 1.1f))
+        drawRect(Brush.radialGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .55f)), Offset(size.width / 2, size.height * .45f), size.maxDimension * .78f))
+    }
+}
+
+/**
+ * Same-package stand-in for Material's plain Surface (it wins over the `material3.*` star import).
+ * Modern skin: exactly Material's Surface. Skeuomorphic skin: page backgrounds become leather and
+ * panels become raised, stitched leather.
+ */
+@Composable
+internal fun Surface(
+    modifier: Modifier = Modifier,
+    shape: Shape = androidx.compose.ui.graphics.RectangleShape,
+    color: Color = androidx.compose.material3.MaterialTheme.colorScheme.surface,
+    contentColor: Color = androidx.compose.material3.contentColorFor(color),
+    tonalElevation: Dp = 0.dp,
+    shadowElevation: Dp = 0.dp,
+    border: androidx.compose.foundation.BorderStroke? = null,
+    content: @Composable () -> Unit
+) {
+    val scheme = androidx.compose.material3.MaterialTheme.colorScheme
+    if (Skin.skeu && color == scheme.background) {
+        Box(modifier.clip(shape), propagateMinConstraints = true) {
+            LeatherBackdrop(Modifier.matchParentSize())
+            androidx.compose.material3.Surface(Modifier, shape, Color.Transparent, contentColor, 0.dp, 0.dp, null, content)
+        }
+    } else if (Skin.skeu && (color == scheme.surface || color == scheme.surfaceVariant)) {
+        val raised = color == scheme.surfaceVariant
+        androidx.compose.material3.Surface(
+            modifier.skeuRaised(shape, stitched = true, elevation = 6.dp,
+                top = if (raised) Color(0xFF524035) else Color(0xFF45352B), bottom = if (raised) Color(0xFF30241D) else Color(0xFF281D17)),
+            shape, Color.Transparent, contentColor, 0.dp, 0.dp, null, content
+        )
+    } else androidx.compose.material3.Surface(modifier, shape, color, contentColor, tonalElevation, shadowElevation, border, content)
+}
 
 @Composable
 internal fun Modifier.pressScale(interaction: InteractionSource, pressed: Float = .95f): Modifier {
@@ -124,6 +243,7 @@ internal fun Modifier.reveal(delayMillis: Int = 0, distance: Dp = 36.dp): Modifi
 /** Slowly drifting ember glows behind the app content. Drawn in its own layer so it never recomposes. */
 @Composable
 internal fun AuroraBackground(modifier: Modifier = Modifier) {
+    if (Skin.skeu) { LeatherBackdrop(modifier); return }
     val transition = rememberInfiniteTransition(label = "aurora")
     val phase by transition.animateFloat(0f, 1f, infiniteRepeatable(tween(16000, easing = LinearEasing), RepeatMode.Reverse), label = "aurora-phase")
     Canvas(modifier.fillMaxSize().graphicsLayer()) {
@@ -185,11 +305,11 @@ internal fun GlassIconButton(
 internal fun SegmentedPills(options: List<String>, selected: Int, modifier: Modifier = Modifier, height: Dp = 44.dp, onSelect: (Int) -> Unit) {
     val haptics = LocalHapticFeedback.current
     BoxWithConstraints(
-        modifier.height(height).glass(CircleShape, .85f).padding(4.dp)
+        modifier.height(height).then(if (Skin.skeu) Modifier.skeuGroove(CircleShape) else Modifier.glass(CircleShape, .85f)).padding(4.dp)
     ) {
         val itemWidth = maxWidth / options.size
         val offset by animateDpAsState(itemWidth * selected, spring(dampingRatio = .72f, stiffness = Spring.StiffnessMediumLow), label = "segment-thumb")
-        Box(Modifier.offset(x = offset).width(itemWidth).fillMaxHeight().clip(CircleShape).background(Sw.Brand))
+        Box(Modifier.offset(x = offset).width(itemWidth).fillMaxHeight().then(if (Skin.skeu) Modifier.glossyCandy(CircleShape, 3.dp) else Modifier.clip(CircleShape).background(Sw.Brand)))
         Row(Modifier.fillMaxSize()) {
             options.forEachIndexed { index, label ->
                 val color by animateColorAsState(if (index == selected) Color.White else Sw.Muted, label = "segment-label")
@@ -222,8 +342,7 @@ internal fun ChipTabs(options: List<Pair<String, Int?>>, selected: Int, modifier
             Row(
                 Modifier.height(40.dp)
                     .pressScale(interaction, .92f)
-                    .clip(CircleShape)
-                    .background(Sw.Raised)
+                    .then(if (Skin.skeu) Modifier.skeuRaised(CircleShape, stitched = false, elevation = 3.dp) else Modifier.clip(CircleShape).background(Sw.Raised))
                     .drawBehind { drawRoundRect(Sw.Brand, cornerRadius = CornerRadius(size.height / 2), alpha = fill) }
                     .border(1.dp, Color.White.copy(alpha = .08f * (1f - fill)), CircleShape)
                     .clickable(interaction, indication = null) {
@@ -269,8 +388,10 @@ internal fun FloatingNavBar(items: List<NavItem>, selected: Int, modifier: Modif
             .navigationBarsPadding()
             .padding(horizontal = 18.dp, vertical = 10.dp)
             .fillMaxWidth()
-            .shadow(28.dp, CircleShape, ambientColor = Color.Black, spotColor = Color.Black)
-            .glass(CircleShape, .94f)
+            .then(
+                if (Skin.skeu) Modifier.skeuRaised(RoundedCornerShape(26.dp), stitched = true, elevation = 14.dp, top = Color(0xFF4A392D), bottom = Color(0xFF1E1611))
+                else Modifier.shadow(28.dp, CircleShape, ambientColor = Color.Black, spotColor = Color.Black).glass(CircleShape, .94f)
+            )
             .padding(6.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -285,7 +406,16 @@ internal fun FloatingNavBar(items: List<NavItem>, selected: Int, modifier: Modif
                 Modifier.weight(weight).height(54.dp)
                     .pressScale(interaction, .9f)
                     .clip(CircleShape)
-                    .drawBehind { drawRoundRect(Sw.Brand, cornerRadius = CornerRadius(size.height / 2), alpha = fill) }
+                    .drawBehind {
+                        val corner = CornerRadius(size.height / 2)
+                        if (Skin.skeu) {
+                            // The active tab is a pocket pressed into the leather, lit gold from within.
+                            drawRoundRect(Color.Black.copy(alpha = .5f * fill), cornerRadius = corner)
+                            drawRoundRect(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .55f * fill), Color.Transparent), 0f, 10.dp.toPx()), cornerRadius = corner)
+                            drawRoundRect(Brush.radialGradient(listOf(Sw.Accent.copy(alpha = .22f * fill), Color.Transparent), center, size.width * .6f), cornerRadius = corner)
+                            drawRoundRect(Color(0xFFB59A7C).copy(alpha = .3f * fill), cornerRadius = corner, style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
+                        } else drawRoundRect(Sw.Brand, cornerRadius = corner, alpha = fill)
+                    }
                     .clickable(interaction, indication = null) {
                         if (!active) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         onSelect(index)
@@ -295,11 +425,11 @@ internal fun FloatingNavBar(items: List<NavItem>, selected: Int, modifier: Modif
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         painterResource(item.icon), item.label,
-                        tint = if (active) Color.White else Sw.Muted,
+                        tint = if (active) (if (Skin.skeu) Sw.Accent else Color.White) else Sw.Muted,
                         modifier = Modifier.size(23.dp).graphicsLayer { scaleX = iconScale; scaleY = iconScale }
                     )
                     AnimatedVisibility(active, enter = fadeIn(tween(220, 80)) + expandHorizontally(tween(260)), exit = fadeOut(tween(90)) + shrinkHorizontally(tween(220))) {
-                        Text(item.label, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 7.dp))
+                        Text(item.label, color = if (Skin.skeu) Sw.Accent else Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 7.dp))
                     }
                 }
             }

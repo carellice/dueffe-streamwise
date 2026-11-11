@@ -82,7 +82,7 @@ export function PersonCredits({ person, source, dismiss, onOpen }: { person: Per
       <div className="fill" style={{ zIndex: 20, pointerEvents: closing ? 'none' : 'auto' }}>
         {/* Sources are the circular photos, so the page starts as that circle. */}
         <ContainerTransform progress={progress} source={source} sourceCorner={source ? Math.min(source.width, source.height) / 2 : null} preview={preview}>
-          <div className="fill col status-pad nav-pad" style={{ background: 'var(--bg)', padding: '0 20px' }}>
+          <div className="fill col status-pad nav-pad" style={{ background: 'var(--page)', padding: '0 20px' }}>
             <div className="row" style={{ padding: '10px 0', paddingTop: 'calc(10px + var(--safe-top))', marginTop: 'calc(-1 * var(--safe-top))' }}>
               <Press pressed={0.9} aria-label="Indietro" onClick={close} className="center" style={{ width: 40, height: 40, borderRadius: 20, background: '#3B161B', flex: 'none' }}>
                 <Icon name="back" color="#FFDAD2" />

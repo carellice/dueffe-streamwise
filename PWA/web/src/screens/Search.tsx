@@ -84,7 +84,7 @@ export function SearchScreen({ onDismiss, onOpen }: { onDismiss: () => void; onO
   }, [query, mode])
   const trailing = loading ? 'busy' : query !== '' ? 'filled' : 'empty'
   return (
-    <div className="fill col status-pad nav-pad" style={{ background: 'var(--bg)', padding: '0 20px' }}>
+    <div className="fill col status-pad nav-pad" style={{ background: 'var(--page)', padding: '0 20px' }}>
       <div className="row" style={{ paddingTop: 8 }}>
         <GlassIconButton icon="back" label="Indietro" onClick={closeSearch} />
         <span className="t-headline-large" style={{ color: 'var(--ink)', marginLeft: 14 }}>Cerca</span>

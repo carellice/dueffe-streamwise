@@ -287,7 +287,7 @@ export function AiScreen({ onDismiss, onOpen }: { onDismiss: () => void; onOpen:
     setLoading(false)
   }
   return (
-    <div className="fill" style={{ background: 'var(--bg)', overflow: 'hidden' }}>
+    <div className="fill" style={{ background: 'var(--page)', overflow: 'hidden' }}>
       <AiGlow />
       <div className="fill scroll status-pad">
         <div className="col" style={{ padding: '8px 20px 40px', gap: 16 }}>
@@ -447,7 +447,7 @@ export function FindTitleScreen({ onDismiss, onOpen }: { onDismiss: () => void; 
   const canContinue = current.required ? text.trim() !== '' : true
   const last = step === STEPS.length - 1
   return (
-    <div className="fill" style={{ background: 'var(--bg)', overflow: 'hidden' }}>
+    <div className="fill" style={{ background: 'var(--page)', overflow: 'hidden' }}>
       <AiGlow />
       <div className="fill scroll status-pad">
         <div className="col" style={{ padding: '8px 20px 40px', gap: 16 }}>

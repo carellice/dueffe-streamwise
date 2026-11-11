@@ -307,7 +307,7 @@ export function SagaDetailScreen({ collection, backEnabled, onDismiss, onOpen }:
   useBackHandler(backEnabled, onDismiss)
   const hero = collection.movies[0]
   return (
-    <div className="fill scroll" style={{ background: 'var(--bg)', paddingBottom: 28 }}>
+    <div className="fill scroll" style={{ background: 'var(--page)', paddingBottom: 28 }}>
       <div style={{ position: 'relative', height: 520 }}>
         {hero && <RemoteImage url={hero.poster || hero.backdrop} style={{ position: 'absolute', inset: 0 }} />}
         <div className="fill" style={{ background: 'linear-gradient(180deg, rgba(0,0,0,.2), transparent, rgba(10,11,16,.98))' }} />
@@ -387,7 +387,7 @@ export function CatalogExpandedScreen({ title, media, loadingMore, refreshing, o
   }, [releaseDates, media.length, loadingMore, refreshing, paginationError, query, grid])
   const pull = usePullToRefresh(onRefresh ? () => onRefresh() : null, refreshing)
   return (
-    <div className="fill col status-pad nav-pad" style={{ background: 'var(--bg)', padding: '0 20px' }}>
+    <div className="fill col status-pad nav-pad" style={{ background: 'var(--page)', padding: '0 20px' }}>
       {pull.indicator(92)}
       <div className="row" style={{ padding: '8px 0' }}>
         <Press pressed={0.9} aria-label="Indietro" onClick={onDismiss} className="center" style={{ width: 40, height: 40, borderRadius: 20, background: '#3B161B', flex: 'none' }}>

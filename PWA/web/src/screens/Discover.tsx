@@ -311,7 +311,7 @@ function CatalogScreen({ kind, onOpen, onAction, onFilters, onExpandedChange, sc
     const title = name === NEW_RELEASES_RAIL ? `Novità · ${releases.upcoming ? 'In arrivo' : 'Appena usciti'}` : name === HOLIDAY_RAIL ? holiday?.title ?? name : name
     return (
       <ExpandingPage source={expanded.origin} sourceCorner={17} onClosed={() => { setExpanded(null); onExpandedChange(false) }}
-        sourceArt={<SeeAllChipArt label={name === MASTERPIECES_RAIL || name === TASTE_RAIL || name === HOLIDAY_RAIL ? 'Tutti' : 'Vedi tutto'} style={{ width: '100%', height: '100%', background: 'var(--bg)' }} />}>
+        sourceArt={<SeeAllChipArt label={name === MASTERPIECES_RAIL || name === TASTE_RAIL || name === HOLIDAY_RAIL ? 'Tutti' : 'Vedi tutto'} style={{ width: '100%', height: '100%', background: 'var(--page)' }} />}>
         {(close) => (
           <CatalogExpandedScreen title={title} media={visible(pick.media)} loadingMore={pick.loadingMore} refreshing={pick.refreshing} onDismiss={close}
             onOpen={onOpen} onAction={onAction} onLoadMore={pick.onLoadMore} onRefresh={pick.onRefresh}

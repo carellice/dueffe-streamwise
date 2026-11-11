@@ -210,7 +210,7 @@ function ProgrammePage({ programme, onDismiss, onOpen }: { programme: Programme;
   const openDetail = () => { if (recognized) onOpen(recognized, artSource(hero.current, image, 26)) }
   const day = formatIt(dateRome(programme.start), 'EEEE d MMMM')
   return (
-    <div className="fill scroll status-pad" style={{ background: 'var(--bg)' }}>
+    <div className="fill scroll status-pad" style={{ background: 'var(--page)' }}>
       <div className="col" style={{ padding: '8px 20px 40px', gap: 18 }}>
         <div className="row">
           <GlassIconButton icon="back" label="Indietro" onClick={onDismiss} />

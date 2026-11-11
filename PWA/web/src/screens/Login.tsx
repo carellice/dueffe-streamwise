@@ -28,7 +28,7 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: (username: string) => 
     setBusy(false)
   }
   return (
-    <div className="fill" style={{ background: 'var(--bg)', zIndex: 80 }}>
+    <div className="fill" style={{ background: 'var(--page)', zIndex: 80 }}>
       <AuroraBackground />
       <form className="fill col scroll status-pad nav-pad desk-narrow" onSubmit={(e) => { e.preventDefault(); void submit() }}
         style={{ padding: '0 24px', justifyContent: 'center' }}>

@@ -63,7 +63,7 @@ export function GenreScreen({ type, genreId, genreName, onDismiss, onOpen, onAct
   }
   useBackHandler(true, onDismiss)
   return (
-    <div className="fill col status-pad" style={{ background: 'var(--bg)' }}>
+    <div className="fill col status-pad" style={{ background: 'var(--page)' }}>
       <div className="row" style={{ padding: '8px 20px 0' }}>
         <GlassIconButton icon="back" label="Indietro" onClick={onDismiss} />
         <div className="grow col" style={{ padding: '0 14px' }}>
@@ -116,7 +116,7 @@ export function PeopleRail({ people, title = 'Cast', topPadding = 26, onPersonCl
         {people.map((person) => <PersonBubble key={person.id + (person.director ? 'd' : '')} person={person} onClick={onPersonClick} />)}
       </div>
       <Dialog open={full} onDismiss={() => setFull(false)} fullHeight={0.86}>
-        <div className="col" style={{ height: '100%', background: 'var(--bg)', borderRadius: 26, padding: 16 }}>
+        <div className="col" style={{ height: '100%', background: 'var(--page)', borderRadius: 26, padding: 16 }}>
           <div className="row">
             <span className="t-title-large grow">{title === 'Regia' ? 'Registi' : title === 'Cast' ? 'Cast completo' : title}</span>
             <button className="center" aria-label="Chiudi elenco" onClick={() => setFull(false)} style={{ width: 40, height: 40, borderRadius: 20 }}><Icon name="close" /></button>
@@ -491,7 +491,7 @@ export function DetailScreen({ initial, backEnabled, onClose, onOpen, onAction, 
   const titleY = useTransform(barAlpha, (a) => (1 - a) * 12)
 
   return (
-    <div className="fill" style={{ background: 'var(--bg)' }}>
+    <div className="fill" style={{ background: 'var(--page)' }}>
       <div ref={scroller} className="fill scroll" style={{ overflowY: closing ? 'hidden' : 'auto', paddingBottom: 44 }}
         onScroll={(e) => {
           const y = e.currentTarget.scrollTop
@@ -505,7 +505,7 @@ export function DetailScreen({ initial, backEnabled, onClose, onOpen, onAction, 
               <RemoteImage url={backdropUrl} animatedPlaceholder style={{ position: 'absolute', inset: 0 }} />
             </motion.div>
           </div>
-          <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 422, background: 'linear-gradient(180deg, rgba(0,0,0,.55) 0%, transparent 30%, rgba(10,11,16,.55) 68%, #0A0B10 100%)' }} />
+          <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 422, background: 'linear-gradient(180deg, rgba(0,0,0,.55) 0%, transparent 30%, rgba(var(--night),.55) 68%, rgb(var(--night)) 100%)' }} />
           <div className="row" style={{ position: 'absolute', left: 20, right: 20, bottom: 0, alignItems: 'flex-end' }}>
             <div style={{ width: 134, aspectRatio: '0.68', flex: 'none', borderRadius: 20, boxShadow: '0 13px 30px rgba(215,20,43,.35)' }}>
               <AnimatePresence initial={false}>

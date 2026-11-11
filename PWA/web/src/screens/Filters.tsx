@@ -120,7 +120,7 @@ export function FilterScreen({ type, onDismiss, onOpen, onAction }: { type: stri
   useBackHandler(true, () => { if (showingResults) setShowingResults(false); else onDismiss() })
   const toggle = (list: string[], set: (l: string[]) => void, id: string) => set(list.includes(id) ? list.filter((x) => x !== id) : [...list, id])
   return (
-    <div className="fill" style={{ background: 'var(--bg)', overflow: 'hidden' }}>
+    <div className="fill" style={{ background: 'var(--page)', overflow: 'hidden' }}>
       <div style={{ position: 'absolute', top: -80, right: -90, width: 320, height: 320, borderRadius: '50%', background: 'radial-gradient(circle, rgba(215,20,43,.22), transparent 70%)' }} />
       <div style={{ position: 'absolute', top: '50%', left: -120, width: 280, height: 280, marginTop: -140, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,75,69,.1), transparent 70%)' }} />
       <AnimatePresence initial={false} custom={showingResults}>
@@ -160,7 +160,7 @@ export function FilterScreen({ type, onDismiss, onOpen, onAction }: { type: stri
                 </Reveal>
               </div>
             </div>
-            <div className="nav-pad" style={{ background: 'linear-gradient(180deg, transparent, rgba(10,11,16,.96), #0A0B10)', padding: '8px 20px 14px', paddingBottom: 'calc(14px + var(--safe-bottom))' }}>
+            <div className="nav-pad" style={{ background: 'linear-gradient(180deg, transparent, rgba(var(--night),.96), rgb(var(--night)))', padding: '8px 20px 14px', paddingBottom: 'calc(14px + var(--safe-bottom))' }}>
               <div className="ellipsis" style={{ color: 'var(--muted)', fontSize: 13, textAlign: 'center', paddingBottom: 10 }}>
                 {labels.length === 0 ? 'Nessun filtro: ti mostro i titoli più popolari' : labels.join(' · ')}
               </div>

@@ -39,11 +39,11 @@ export function EpisodesScreen({ media, onDismiss }: { media: Media; onDismiss: 
   const save = (work: () => ReturnType<typeof lib.markEpisode>) => { void saveEntry(work()) }
 
   if (seasons == null) {
-    return <div className="fill center" style={{ background: 'var(--bg)' }}><Spinner size={54} stroke={5} /></div>
+    return <div className="fill center" style={{ background: 'var(--page)' }}><Spinner size={54} stroke={5} /></div>
   }
   if (seasons.length === 0) {
     return (
-      <div className="fill col status-pad" style={{ background: 'var(--bg)' }}>
+      <div className="fill col status-pad" style={{ background: 'var(--page)' }}>
         <div className="row" style={{ padding: '8px 16px' }}>
           <button className="center" onClick={onDismiss} style={{ width: 48, height: 48 }}><Icon name="back" /></button>
           <span className="t-title-large" style={{ fontWeight: 700 }}>{media.title}</span>
@@ -65,7 +65,7 @@ export function EpisodesScreen({ media, onDismiss }: { media: Media; onDismiss: 
   }
 
   return (
-    <div className="fill col status-pad nav-pad" style={{ background: 'var(--bg)' }}>
+    <div className="fill col status-pad nav-pad" style={{ background: 'var(--page)' }}>
       <div className="row" style={{ padding: '8px 16px 12px 10px' }}>
         <button className="center" aria-label="Indietro" onClick={onDismiss} style={{ width: 48, height: 48, flex: 'none' }}><Icon name="back" /></button>
         <div className="grow col" style={{ paddingLeft: 4 }}>
@@ -175,7 +175,7 @@ export function EpisodesScreen({ media, onDismiss }: { media: Media; onDismiss: 
 
       <Dialog open={selectedEpisode != null} onDismiss={() => setSelectedEpisode(null)}>
         {selectedEpisode && (
-          <div style={{ background: 'var(--bg)', borderRadius: 24, overflow: 'hidden' }} className="scroll">
+          <div style={{ background: 'var(--page)', borderRadius: 24, overflow: 'hidden' }} className="scroll">
             <RemoteImage url={selectedEpisode.still || media.backdrop} style={{ width: '100%', aspectRatio: '16 / 9' }} />
             <div className="col" style={{ padding: 20 }}>
               <span style={{ color: 'var(--secondary)', fontWeight: 900, fontSize: 11, letterSpacing: 1.2, lineHeight: '16px' }}>STAGIONE {selectedEpisode.season} · EPISODIO {selectedEpisode.number}</span>
