@@ -710,8 +710,10 @@ async function shareTitle(media: Media) {
   const url = `https://www.themoviedb.org/${media.mediaType}/${media.tmdbId}`
   const title = media.year && media.year !== 'S.D.' ? `${media.title} (${media.year})` : media.title
   try {
-    if (navigator.share) await navigator.share({ title, text: title, url })
-    else { await navigator.clipboard.writeText(`${title}\n${url}`); showToast('Link copiato') }
+    // All in the text, no separate url: apps that append the url would put it after the download line.
+    const text = `${title}\n${url}\n\nScarica StreamWise: https://carellice.github.io/dueffe-home/#/p/dueffe-streamwise`
+    if (navigator.share) await navigator.share({ title, text })
+    else { await navigator.clipboard.writeText(text); showToast('Link copiato') }
   } catch (e) {
     if ((e as Error).name !== 'AbortError') showToast('Condivisione non riuscita')
   }

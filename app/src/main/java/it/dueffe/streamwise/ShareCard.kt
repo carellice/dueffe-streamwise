@@ -43,7 +43,7 @@ internal suspend fun shareMedia(context: Context, media: Models.Media) {
         File(dir, "streamwise-${media.mediaType}-${media.tmdbId}.png").also { f -> f.outputStream().use { card.compress(Bitmap.CompressFormat.PNG, 100, it) } }
     }
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.updates", file)
-    val text = "${media.title}${if (media.year != "S.D.") " (${media.year})" else ""}\n${tmdbLink(media)}"
+    val text = "${media.title}${if (media.year != "S.D.") " (${media.year})" else ""}\n${tmdbLink(media)}\n\nScarica StreamWise: https://carellice.github.io/dueffe-home/#/p/dueffe-streamwise"
     val send = Intent(Intent.ACTION_SEND)
         .setType("image/png")
         .putExtra(Intent.EXTRA_STREAM, uri)
