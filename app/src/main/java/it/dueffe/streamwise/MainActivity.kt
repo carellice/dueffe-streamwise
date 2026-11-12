@@ -951,7 +951,7 @@ private fun AiPage(title: String, intro: String, onDismiss: () -> Unit, trailing
                 .background(Brush.radialGradient(listOf(AiViolet.copy(alpha = .22f), Color.Transparent)), CircleShape))
             if (configured) Column(Modifier.fillMaxSize().statusBarsPadding()) { content() }
             else Column(
-                Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 40.dp),
+                Modifier.fillMaxSize().statusBarsPadding().imePadding().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 40.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 AiHeader(title, onDismiss, trailing)
@@ -1473,6 +1473,15 @@ private fun AiChatScreen(api: TmdbApi, store: LibraryStore, onDismiss: () -> Uni
 @Composable
 private fun AiHubScreen(api: TmdbApi, store: LibraryStore, onDismiss: () -> Unit, onOpen: (Models.Media) -> Unit) {
     val context = LocalContext.current
+    // The window pans by default, and the composer's imePadding() would lift it a second time, up to the top
+    // of the screen: while the assistant is open the window resizes instead, so only imePadding() moves it.
+    val view = LocalView.current
+    DisposableEffect(view) {
+        val window = view.context.findActivity()?.window
+        val previous = window?.attributes?.softInputMode
+        window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        onDispose { if (previous != null) window.setSoftInputMode(previous) }
+    }
     if (remember { AiAdvisor.hubStyle(context) } == "tabs") AiToolsScreen(api, store, onDismiss, onOpen) else AiChatScreen(api, store, onDismiss, onOpen)
 }
 
