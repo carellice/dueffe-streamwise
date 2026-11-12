@@ -4,7 +4,8 @@ import type { Media } from '../../../shared/model.ts'
 import { isSeries } from '../../../shared/model.ts'
 import * as lib from '../../../shared/library.ts'
 import { GENRES, PLATFORMS, genreValue, type Genre, type Platform } from '../../../shared/tmdb.ts'
-import { entries, entryOf, followOf, removeEntry, saveEntry } from '../lib/store.ts'
+import { entries, entryOf, followOf, getStore, removeEntry, saveEntry } from '../lib/store.ts'
+import { api } from '../lib/api.ts'
 import { tmdb } from '../lib/tmdb.ts'
 import { advisorPlatformLogo } from '../lib/subscriptions.tsx'
 import { AlertDialog, BottomSheet } from '../components/overlay.tsx'
@@ -31,7 +32,26 @@ export async function chooseAdvisorTitle(request: AdvisorRequest, excludedId: st
     const found = await tmdb.discover(actualType, page, request.genre ? genreValue(request.genre, actualType) : null, request.platform?.providerId ?? null, 'popular').catch(() => [] as Media[])
     choices = found.filter((m) => entryOf(m) == null)
   }
-  return random(choices.filter((m) => m.id !== excludedId))
+  choices = choices.filter((m) => m.id !== excludedId)
+  // With the AI connected, it picks the best fit among a few random candidates; otherwise chance does.
+  if (getStore().data?.ai.configured === true && choices.length > 1) {
+    const candidates = shuffled(choices).slice(0, 20)
+    try {
+      const { id } = await api<{ id: string }>('/api/ai/pick', { method: 'POST', json: { candidates } })
+      const chosen = candidates.find((m) => m.id === id)
+      if (chosen) return chosen
+    } catch { /* fall back to chance */ }
+  }
+  return random(choices)
+}
+
+function shuffled<T>(items: T[]): T[] {
+  const copy = [...items]
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]]
+  }
+  return copy
 }
 
 function AdvisorTypeChoice({ label, icon, selected, onClick }: { label: string; icon: IconName; selected: boolean; onClick: () => void }) {

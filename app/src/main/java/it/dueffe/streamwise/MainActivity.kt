@@ -468,8 +468,6 @@ private fun StreamWiseApp(
     var settingsOrigin by remember { mutableStateOf<Rect?>(null) }
     var aiOpen by remember { mutableStateOf(false) }
     var aiOrigin by remember { mutableStateOf<Rect?>(null) }
-    var findTitleOpen by remember { mutableStateOf(false) }
-    var findTitleOrigin by remember { mutableStateOf<Rect?>(null) }
     var filters by remember { mutableStateOf(false) }
     var filtersOrigin by remember { mutableStateOf<Rect?>(null) }
     var selectedSaga by remember { mutableStateOf<SagaCollection?>(null) }
@@ -541,7 +539,6 @@ private fun StreamWiseApp(
                             onSettings = { bounds -> settingsOrigin = bounds; settings = true },
                             onAdvisor = { fromLibrary -> advisorFromLibrary = fromLibrary; advisor = true },
                             onAskAi = { bounds -> aiOrigin = bounds; aiOpen = true },
-                            onFindTitle = { bounds -> findTitleOrigin = bounds; findTitleOpen = true },
                             onOpenLibrary = { section -> librarySection = section; tab = Tab.LIBRARY },
                             onDiscover = { tab = Tab.DISCOVER },
                             onOpenGuide = { tab = Tab.GUIDE },
@@ -584,10 +581,7 @@ private fun StreamWiseApp(
                 SearchScreen(api, store, refresh, onDismiss = close, onOpen = openFromCatalog)
             }
             if (aiOpen) ExpandingPage(aiOrigin, onClosed = { aiOpen = false }, sourceCorner = 26.dp, sourceArt = { AiCardArt(Modifier.fillMaxSize()) }) { close ->
-                AiScreen(api, store, onDismiss = close, onOpen = openFromCatalog)
-            }
-            if (findTitleOpen) ExpandingPage(findTitleOrigin, onClosed = { findTitleOpen = false }, sourceCorner = 26.dp, sourceArt = { AiCardArt(Modifier.fillMaxSize(), title = FIND_TITLE, subtitle = FIND_TITLE_SUBTITLE, icon = R.drawable.ic_search) }) { close ->
-                FindTitleScreen(api, onDismiss = close, onOpen = openFromCatalog)
+                AiHubScreen(api, store, onDismiss = close, onOpen = openFromCatalog)
             }
             if (settings) ExpandingPage(settingsOrigin, onClosed = { settings = false }) { close ->
                 SettingsScreen(store, onDismiss = close, onChanged = { refresh++ }, onExportBackup = onExportBackup, onImportBackup = onImportBackup, onReplayOnboarding = onReplayOnboarding)
@@ -672,7 +666,7 @@ private fun StreamWiseApp(
                                             if (!advisorRerolling) {
                                                 advisorRerolling = true
                                                 scope.launch {
-                                                    chooseAdvisorTitle(api, store, request, selected?.id)?.let { next ->
+                                                    chooseAdvisorTitle(libraryContext, api, store, request, selected?.id)?.let { next ->
                                                         selectedArtworkKey = null
                                                         detailPages = detailPages.map { if (it.routeId == page.routeId) it.copy(media = next, artworkKey = null) else it }
                                                         selected = next
@@ -727,13 +721,16 @@ private fun ExpandingPage(
 }
 
 private val AiViolet = Color(0xFFA57BFF)
+private val AiGradient: Brush get() = Brush.linearGradient(listOf(AiViolet, Sw.Red))
+private const val AI_FAILED = "Non riesco a contattare l'IA. Controlla la connessione e riprova."
+private fun aiErrorMessage(error: Throwable?): String = (error as? AiException)?.message ?: AI_FAILED
 
-/** Look of the "Chiedi all'IA" card; also drawn by the page transition that grows out of it. */
+/** Look of the "Assistente IA" card; also drawn by the page transition that grows out of it. */
 @Composable
 private fun AiCardArt(
     modifier: Modifier = Modifier,
-    title: String = "Chiedi all'IA",
-    subtitle: String = "Dimmi cosa ti va: ti consiglio titoli su misura dei tuoi gusti",
+    title: String = "Assistente IA",
+    subtitle: String = "Consigli su misura, la TV di stasera, serate in due e titoli dimenticati",
     icon: Int = R.drawable.ic_sparkles
 ) {
     val shape = RoundedCornerShape(26.dp)
@@ -744,7 +741,7 @@ private fun AiCardArt(
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(Modifier.size(46.dp).clip(CircleShape).background(Brush.linearGradient(listOf(AiViolet, Sw.Red))), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(46.dp).clip(CircleShape).background(AiGradient), contentAlignment = Alignment.Center) {
             Icon(painterResource(icon), null, tint = Color.White, modifier = Modifier.size(23.dp))
         }
         Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
@@ -760,9 +757,6 @@ private fun AiCardArt(
     }
 }
 
-private const val FIND_TITLE = "Ritrova un titolo"
-private const val FIND_TITLE_SUBTITLE = "Non ricordi il nome? Rispondi a qualche domanda e lo cerco io"
-
 @Composable
 private fun AiAskCard(modifier: Modifier, onAsk: (Rect?) -> Unit) {
     var bounds by remember { mutableStateOf<Rect?>(null) }
@@ -775,22 +769,205 @@ private fun AiAskCard(modifier: Modifier, onAsk: (Rect?) -> Unit) {
     )
 }
 
+// ---- building blocks ----
+
 @Composable
-private fun FindTitleCard(modifier: Modifier, onOpen: (Rect?) -> Unit) {
-    var bounds by remember { mutableStateOf<Rect?>(null) }
-    val interaction = remember { MutableInteractionSource() }
-    AiCardArt(
-        modifier.fillMaxWidth()
-            .onGloballyPositioned { bounds = it.boundsInRoot() }
-            .pressScale(interaction, .97f)
-            .clickable(interaction, indication = null) { onOpen(bounds) },
-        title = FIND_TITLE, subtitle = FIND_TITLE_SUBTITLE, icon = R.drawable.ic_search
-    )
+private fun AiChip(label: String, active: Boolean = false, icon: Int? = null, small: Boolean = true, onClick: () -> Unit) {
+    Row(
+        Modifier.clip(CircleShape)
+            .background(if (active) AiViolet.copy(alpha = .22f) else Sw.Raised)
+            .border(1.dp, if (active) AiViolet else Color.White.copy(alpha = .06f), CircleShape)
+            .noRippleClickable(onClick)
+            .padding(horizontal = if (small) 14.dp else 16.dp, vertical = if (small) 8.dp else 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (icon != null) { Icon(painterResource(icon), null, tint = AiViolet, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)) }
+        Text(label, color = if (active) Color.White else Ink.copy(alpha = .85f), fontSize = if (small) 13.sp else 14.sp, fontWeight = FontWeight.SemiBold)
+    }
 }
+
+@Composable
+private fun AiButton(label: String, busy: Boolean, modifier: Modifier = Modifier, enabled: Boolean = true, height: androidx.compose.ui.unit.Dp = 56.dp, icon: Boolean = true, onClick: () -> Unit) {
+    val active = enabled && !busy
+    Button(
+        onClick = onClick,
+        enabled = active,
+        modifier = modifier.fillMaxWidth().height(height)
+            .then(if (enabled) Modifier.shadow(12.dp, CircleShape, ambientColor = AiViolet, spotColor = AiViolet).background(AiGradient, CircleShape) else Modifier.background(Sw.Raised, CircleShape)),
+        shape = CircleShape,
+        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White, disabledContainerColor = Color.Transparent, disabledContentColor = if (enabled) Color.White else Muted)
+    ) {
+        AnimatedContent(busy to label, label = "ai-button") { (isBusy, text) ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isBusy) { CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp); Spacer(Modifier.width(10.dp)) }
+                else if (icon) { Icon(painterResource(R.drawable.ic_sparkles), null, Modifier.size(21.dp)); Spacer(Modifier.width(10.dp)) }
+                Text(text, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        }
+    }
+}
+
+/** A text field with the AI's gradient outline. */
+@Composable
+private fun AiTextArea(value: String, onChange: (String) -> Unit, placeholder: String, minHeight: androidx.compose.ui.unit.Dp = 104.dp, max: Int = 300, onSend: (() -> Unit)? = null) {
+    Box(
+        Modifier.fillMaxWidth().heightIn(min = minHeight).clip(RoundedCornerShape(24.dp))
+            .background(Sw.Surface)
+            .border(1.dp, Brush.linearGradient(listOf(AiViolet.copy(alpha = .5f), Sw.Red.copy(alpha = .3f))), RoundedCornerShape(24.dp))
+            .padding(16.dp)
+    ) {
+        androidx.compose.foundation.text.BasicTextField(
+            value = value,
+            onValueChange = { onChange(it.take(max)) },
+            textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 16.sp, lineHeight = 22.sp),
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(AiViolet),
+            keyboardOptions = KeyboardOptions(imeAction = if (onSend != null) ImeAction.Send else ImeAction.Default),
+            keyboardActions = KeyboardActions(onSend = { onSend?.invoke() }),
+            modifier = Modifier.fillMaxWidth(),
+            decorationBox = { inner ->
+                Box {
+                    if (value.isEmpty()) Text(placeholder, color = Muted, fontSize = 16.sp, lineHeight = 22.sp)
+                    inner()
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun AiResultSkeleton(lines: Int = 4) {
+    Row(Modifier.fillMaxWidth().glass(RoundedCornerShape(22.dp)).padding(10.dp)) {
+        LoadingSkeleton(Modifier.size(84.dp, 124.dp).clip(RoundedCornerShape(14.dp)))
+        Column(Modifier.weight(1f).padding(start = 14.dp, top = 6.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            LoadingSkeleton(Modifier.fillMaxWidth(.4f).height(10.dp).clip(CircleShape))
+            LoadingSkeleton(Modifier.fillMaxWidth(.8f).height(16.dp).clip(CircleShape))
+            LoadingSkeleton(Modifier.fillMaxWidth().height(12.dp).clip(CircleShape))
+            if (lines > 3) LoadingSkeleton(Modifier.fillMaxWidth(.7f).height(12.dp).clip(CircleShape))
+        }
+    }
+}
+
+@Composable
+private fun AiReason(reason: String) {
+    if (reason.isNotBlank()) Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.Top) {
+        Icon(painterResource(R.drawable.ic_sparkles), null, tint = AiViolet, modifier = Modifier.padding(top = 2.dp).size(14.dp))
+        Text(reason, color = Muted, fontSize = 13.sp, lineHeight = 18.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, modifier = Modifier.padding(start = 6.dp))
+    }
+}
+
+/** A title the AI picked: poster, type, year and rating, the reason, and the user's services that include it. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AiResultCard(media: Models.Media, reason: String, modifier: Modifier, providers: List<Models.Provider> = emptyList(), open: () -> Unit) {
+    val sourceKey = rememberArtworkSourceKey(media)
+    val registerSource = LocalRegisterArtworkSource.current
+    Row(
+        modifier.fillMaxWidth()
+            .noRippleClickable { registerSource(sourceKey); open() }
+            .glass(RoundedCornerShape(22.dp))
+            .padding(10.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        SharedArtworkSource(media, sourceKey, Modifier.size(84.dp, 124.dp), RoundedCornerShape(14.dp))
+        Column(Modifier.weight(1f).padding(start = 14.dp, end = 4.dp, top = 2.dp)) {
+            val rating = if (media.rating > 0) " · ★ ${String.format(java.util.Locale.ITALY, "%.1f", media.rating)}" else ""
+            Text("${if (media.isSeries) "SERIE TV" else "FILM"} · ${media.year}$rating", color = Sw.Accent, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp)
+            Text(media.title, color = Ink, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+            AiReason(reason)
+            if (providers.isNotEmpty()) FlowRow(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                providers.take(3).forEach { p ->
+                    Row(Modifier.clip(CircleShape).background(Sw.Raised).padding(start = 3.dp, end = 9.dp, top = 3.dp, bottom = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (p.logo.isNotBlank()) RemoteImage(p.logo, Modifier.size(18.dp).clip(RoundedCornerShape(5.dp)), ContentScale.Crop)
+                        else Icon(painterResource(R.drawable.ic_play), null, tint = Ink, modifier = Modifier.size(14.dp))
+                        Text(p.name, color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 5.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** A programme on TV tonight that the AI picked; opens the title when TMDB recognized it. */
+@Composable
+private fun AiTvCard(item: AiTvResult, modifier: Modifier, onOpen: (Models.Media) -> Unit) {
+    val time = remember { java.time.format.DateTimeFormatter.ofPattern("HH:mm").withZone(TvGuideRepository.ROME) }
+    val media = item.media
+    Row(
+        modifier.fillMaxWidth()
+            .then(if (media != null) Modifier.noRippleClickable { onOpen(media) } else Modifier)
+            .glass(RoundedCornerShape(22.dp))
+            .padding(10.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        RemoteImage(media?.poster?.ifBlank { null } ?: item.programme.image, Modifier.size(84.dp, 124.dp).clip(RoundedCornerShape(14.dp)), ContentScale.Crop, fallbackIcon = R.drawable.ic_tv, backgroundColor = Sw.Raised)
+        Column(Modifier.weight(1f).padding(start = 14.dp, end = 4.dp, top = 2.dp)) {
+            Text("ORE ${time.format(item.programme.start)} · ${item.programme.channel.uppercase()}", color = Sw.Accent, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp)
+            Text(media?.title ?: item.programme.title, color = Ink, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+            AiReason(item.reason)
+        }
+    }
+}
+
+/** The titles of an answer, revealed one after the other. */
+@Composable
+private fun AiAnswerResults(answer: AiAnswer, onOpen: (Models.Media) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        answer.tv.forEachIndexed { index, item -> key(item.programme.key()) { AiTvCard(item, Modifier.reveal(delayMillis = index * 70, distance = 24.dp), onOpen) } }
+        answer.results.forEachIndexed { index, r -> key(r.media.id) { AiResultCard(r.media, r.reason, Modifier.reveal(delayMillis = index * 70, distance = 24.dp), r.providers) { onOpen(r.media) } } }
+    }
+}
+
+@Composable
+private fun AiHeader(title: String, onBack: () -> Unit, trailing: (@Composable () -> Unit)? = null) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        GlassIconButton(R.drawable.ic_back, "Indietro") { onBack() }
+        Column(Modifier.weight(1f).padding(start = 14.dp)) {
+            Text("INTELLIGENZA ARTIFICIALE", color = AiViolet, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp)
+            Text(metroCase(title), style = MaterialTheme.typography.headlineMedium, color = Ink)
+        }
+        trailing?.invoke()
+    }
+}
+
+@Composable
+private fun AiTextAction(label: String, onClick: () -> Unit) {
+    Text(label, color = AiViolet, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+        modifier = Modifier.clip(CircleShape).noRippleClickable(onClick).padding(horizontal = 10.dp, vertical = 8.dp))
+}
+
+@Composable
+private fun AiErrorText(message: String?) {
+    message?.let { Text(it, color = DislikeRed, fontSize = 14.sp, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
+}
+
+/** A full AI page: background glow, header, and the setup card while the AI is not connected. */
+@Composable
+private fun AiPage(title: String, intro: String, onDismiss: () -> Unit, trailing: (@Composable () -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
+    val context = LocalContext.current
+    var configured by remember { mutableStateOf(AiAdvisor.configured(context)) }
+    Surface(Modifier.fillMaxSize(), color = Night) {
+        Box(Modifier.fillMaxSize()) {
+            Box(Modifier.align(Alignment.TopEnd).offset(x = 90.dp, y = (-90).dp).size(340.dp)
+                .background(Brush.radialGradient(listOf(AiViolet.copy(alpha = .22f), Color.Transparent)), CircleShape))
+            if (configured) Column(Modifier.fillMaxSize().statusBarsPadding()) { content() }
+            else Column(
+                Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 40.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                AiHeader(title, onDismiss, trailing)
+                Text("$intro Prima collega il tuo account Cloudflare: è gratuito.", color = Muted, fontSize = 15.sp, lineHeight = 21.sp)
+                AiSetupCard(onConfiguredChange = { configured = it })
+            }
+        }
+    }
+}
+
+// ---- Ritrova un titolo ----
 
 /** One question of the "Ritrova un titolo" guide; "Non ricordo" answers are not sent to the AI. */
 private class FindTitleStep(val question: String, val hint: String, val options: List<String> = emptyList(), val multiple: Boolean = false, val placeholder: String? = null, val required: Boolean = false)
 
+private const val FIND_TITLE = "Ritrova un titolo"
 private const val DONT_REMEMBER = "Non ricordo"
 
 private val FIND_TITLE_STEPS = listOf(
@@ -802,451 +979,506 @@ private val FIND_TITLE_STEPS = listOf(
     FindTitleStep("Qualche altro dettaglio?", "Facoltativo: attori, una scena, un luogo, il finale, la locandina.", placeholder = "Es. c'era un attore biondo, una scena sotto la pioggia…")
 )
 
+/** State of "Ritrova un titolo", kept by the screen so the tabs hub does not lose it. */
+private class FindTitleState {
+    var step by mutableIntStateOf(0)
+    val selections = mutableStateMapOf<Int, Set<String>>()
+    val texts = mutableStateMapOf<Int, String>()
+    // Answers to the AI's own follow-up questions, added after each "Non è nessuno di questi".
+    val followUps = mutableStateListOf<Pair<String, String>>()
+    val excluded = mutableStateListOf<String>()
+    var answer by mutableStateOf<AiAnswer?>(null)
+    var followText by mutableStateOf("")
+    var loading by mutableStateOf(false)
+    var error by mutableStateOf<String?>(null)
+    val done get() = step >= FIND_TITLE_STEPS.size
+    fun restart() {
+        step = 0; selections.clear(); texts.clear(); followUps.clear(); excluded.clear(); answer = null; error = null
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun FindTitleScreen(api: TmdbApi, onDismiss: () -> Unit, onOpen: (Models.Media) -> Unit) {
+private fun FindTitleFlow(api: TmdbApi, state: FindTitleState, onOpen: (Models.Media) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
-    var configured by remember { mutableStateOf(AiAdvisor.configured(context)) }
-    var step by remember { mutableIntStateOf(0) }
-    val selections = remember { mutableStateMapOf<Int, Set<String>>() }
-    val texts = remember { mutableStateMapOf<Int, String>() }
-    // Answers to the AI's own follow-up questions, added after each "Non è nessuno di questi".
-    val followUps = remember { mutableStateListOf<Pair<String, String>>() }
-    val excluded = remember { mutableStateListOf<String>() }
-    var results by remember { mutableStateOf<List<Pair<Models.Media, String>>>(emptyList()) }
-    var question by remember { mutableStateOf("") }
-    var options by remember { mutableStateOf<List<String>>(emptyList()) }
-    var followText by remember { mutableStateOf("") }
-    var loading by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val done = step >= FIND_TITLE_STEPS.size
     fun clues(): List<Pair<String, String>> = FIND_TITLE_STEPS.mapIndexedNotNull { index, item ->
-        val answer = (selections[index].orEmpty().filter { it != DONT_REMEMBER } + listOfNotNull(texts[index]?.trim()?.takeIf { it.isNotEmpty() })).joinToString(", ")
-        if (answer.isEmpty()) null else item.question to answer
-    } + followUps
+        val value = (state.selections[index].orEmpty().filter { it != DONT_REMEMBER } + listOfNotNull(state.texts[index]?.trim()?.takeIf { it.isNotEmpty() })).joinToString(", ")
+        if (value.isEmpty()) null else item.question to value
+    } + state.followUps
     fun search() {
-        if (loading) return
+        if (state.loading) return
         focusManager.clearFocus(force = true)
+        state.loading = true
+        state.error = null
+        scope.launch {
+            val found = withContext(Dispatchers.IO) { runCatching { AiAdvisor.identify(context, api, clues(), state.excluded.toList()) } }
+            found.getOrNull()?.let { answer ->
+                state.excluded.addAll(answer.results.map { it.media.originalTitle.ifBlank { it.media.title } })
+                state.answer = answer
+                if (answer.results.isEmpty()) state.error = "Non ho trovato titoli adatti. Rispondi alla domanda qui sotto o aggiungi altri dettagli."
+            }
+            if (found.isFailure) state.error = aiErrorMessage(found.exceptionOrNull())
+            state.followText = ""
+            state.loading = false
+        }
+    }
+    fun answerFollowUp(value: String) {
+        if (value.isBlank()) return
+        state.followUps.add((state.answer?.question?.ifBlank { null } ?: "Altro dettaglio") to value.trim())
+        search()
+    }
+    BackHandler(enabled = state.step > 0 && !state.loading) { if (state.done) state.step = FIND_TITLE_STEPS.size - 1 else state.step-- }
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        val stepIndex = state.step
+        if (stepIndex < FIND_TITLE_STEPS.size) {
+            val current = FIND_TITLE_STEPS[stepIndex]
+            val selected = state.selections[stepIndex].orEmpty()
+            val text = state.texts[stepIndex].orEmpty()
+            val canContinue = if (current.required) text.isNotBlank() else true
+            Column {
+                Text("Domanda ${stepIndex + 1} di ${FIND_TITLE_STEPS.size}", color = Muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                LinearProgressIndicator(
+                    progress = { (stepIndex + 1f) / FIND_TITLE_STEPS.size },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(6.dp).clip(CircleShape),
+                    color = AiViolet, trackColor = Sw.Raised, drawStopIndicator = {}
+                )
+            }
+            AnimatedContent(
+                stepIndex,
+                transitionSpec = { (fadeIn(tween(260, 60)) + androidx.compose.animation.slideInHorizontally(tween(380, easing = Sw.Emphasized)) { it / 5 }) togetherWith fadeOut(tween(140)) },
+                label = "find-title-step"
+            ) { index ->
+                val shown = FIND_TITLE_STEPS[index]
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(shown.question, style = MaterialTheme.typography.headlineSmall, color = Ink, fontWeight = FontWeight.ExtraBold)
+                    Text(shown.hint, color = Muted, fontSize = 15.sp, lineHeight = 21.sp)
+                    if (shown.options.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        shown.options.forEach { option ->
+                            val active = option in state.selections[index].orEmpty()
+                            AiChip(option, active, small = false) {
+                                val now = state.selections[index].orEmpty()
+                                state.selections[index] = when {
+                                    !shown.multiple -> if (active) emptySet() else setOf(option)
+                                    option == DONT_REMEMBER -> if (active) emptySet() else setOf(option)
+                                    active -> now - option
+                                    else -> now - DONT_REMEMBER + option
+                                }
+                                // Single-choice questions move on by themselves.
+                                if (!shown.multiple && !active) state.step = index + 1
+                            }
+                        }
+                    }
+                    if (shown.placeholder != null) AiTextArea(state.texts[index].orEmpty(), { state.texts[index] = it }, shown.placeholder, minHeight = 120.dp, max = 400)
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (stepIndex > 0) OutlinedButton({ state.step-- }, Modifier.weight(1f).height(54.dp), shape = CircleShape) { Text("Indietro") }
+                val last = stepIndex == FIND_TITLE_STEPS.size - 1
+                AiButton(
+                    when {
+                        last -> "Trova il titolo"
+                        current.required || current.multiple || selected.isNotEmpty() || text.isNotBlank() -> "Avanti"
+                        else -> "Salta"
+                    },
+                    busy = false, modifier = Modifier.weight(if (stepIndex > 0) 1.6f else 1f), enabled = canContinue, height = 54.dp, icon = last
+                ) { state.step++; if (last) search() }
+            }
+        } else {
+            Text(
+                if (state.loading) "Sto ripensando ai tuoi indizi…" else state.answer?.intro?.ifBlank { null } ?: if (state.answer?.results?.isNotEmpty() == true) "Forse cercavi uno di questi. Tocca quello giusto per aprirlo." else "",
+                color = Muted, fontSize = 15.sp, lineHeight = 21.sp
+            )
+            if (state.loading) repeat(3) { AiResultSkeleton(3) } else state.answer?.let { AiAnswerResults(it, onOpen) }
+            AiErrorText(state.error)
+            if (!state.loading) Surface(color = Panel, shape = RoundedCornerShape(24.dp), border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(if (state.answer?.results.isNullOrEmpty()) "Proviamo ancora" else "Non è nessuno di questi?", style = MaterialTheme.typography.titleLarge, color = Ink)
+                    Text(state.answer?.question?.ifBlank { null } ?: "Aggiungi un dettaglio che ricordi: un attore, una scena, un luogo.", color = Muted, fontSize = 15.sp, lineHeight = 21.sp)
+                    val options = state.answer?.options.orEmpty()
+                    if (options.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        options.forEach { option -> AiChip(option) { answerFollowUp(option) } }
+                    }
+                    OutlinedTextField(
+                        value = state.followText,
+                        onValueChange = { state.followText = it.take(300) },
+                        placeholder = { Text("Oppure scrivi tu…") },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { answerFollowUp(state.followText) }),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    AiButton("Cerca ancora", busy = false, enabled = state.followText.isNotBlank(), height = 50.dp, icon = false) { answerFollowUp(state.followText) }
+                }
+            }
+        }
+    }
+}
+
+// ---- the hubs ----
+
+/** Runs one AI request at a time for a tab or a section, keeping the last answer and error. */
+private class AiRun {
+    var answer by mutableStateOf<AiAnswer?>(null)
+    var loading by mutableStateOf(false)
+    var error by mutableStateOf<String?>(null)
+    val shown = mutableListOf<String>()
+    fun start(scope: kotlinx.coroutines.CoroutineScope, empty: String, work: (List<String>) -> AiAnswer) {
+        if (loading) return
         loading = true
         error = null
         scope.launch {
-            val found = withContext(Dispatchers.IO) { runCatching { AiAdvisor.identify(context, clues(), excluded.toList()) } }
-            val identification = found.getOrNull()
-            val resolved = withContext(Dispatchers.IO) {
-                coroutineScope { identification?.picks.orEmpty().map { pick -> async { resolveAiPick(api, pick)?.let { it to pick.reason } } }.awaitAll() }
-            }.filterNotNull().distinctBy { it.first.id }
-            identification?.let { excluded.addAll(it.picks.map { pick -> pick.title }) }
-            results = resolved
-            question = identification?.question.orEmpty()
-            options = identification?.options.orEmpty()
-            followText = ""
-            error = when {
-                found.isFailure -> (found.exceptionOrNull() as? AiException)?.message ?: "Non riesco a contattare l'IA. Controlla la connessione e riprova."
-                resolved.isEmpty() -> "Non ho trovato titoli adatti. Rispondi alla domanda qui sotto o aggiungi altri dettagli."
-                else -> null
+            val result = withContext(Dispatchers.IO) { runCatching { work(shown.toList()) } }
+            result.getOrNull()?.let { next ->
+                shown.addAll(next.results.map { it.media.id })
+                answer = next
+                if (next.results.isEmpty() && next.tv.isEmpty()) error = empty
             }
+            if (result.isFailure) error = aiErrorMessage(result.exceptionOrNull())
             loading = false
         }
     }
-    fun answerFollowUp(answer: String) {
-        if (answer.isBlank()) return
-        followUps.add((question.ifBlank { "Altro dettaglio" }) to answer.trim())
-        search()
-    }
-    fun restart() {
-        step = 0; selections.clear(); texts.clear(); followUps.clear(); excluded.clear()
-        results = emptyList(); question = ""; options = emptyList(); error = null
-    }
-    BackHandler { if (step > 0 && !done) step-- else if (done && !loading) step = FIND_TITLE_STEPS.size - 1 else onDismiss() }
-    Surface(Modifier.fillMaxSize(), color = Night) {
-        Box(Modifier.fillMaxSize()) {
-            Box(Modifier.align(Alignment.TopEnd).offset(x = 90.dp, y = (-90).dp).size(340.dp)
-                .background(Brush.radialGradient(listOf(AiViolet.copy(alpha = .22f), Color.Transparent)), CircleShape))
-            LazyColumn(
-                Modifier.fillMaxSize().statusBarsPadding().imePadding(),
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 40.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                item {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        GlassIconButton(R.drawable.ic_back, "Indietro") { onDismiss() }
-                        Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                            Text("INTELLIGENZA ARTIFICIALE", color = AiViolet, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp)
-                            Text(FIND_TITLE, style = MaterialTheme.typography.headlineMedium, color = Ink)
-                        }
-                        if (configured && (step > 0 || done)) Text("Ricomincia", color = AiViolet, fontWeight = FontWeight.Bold, fontSize = 14.sp,
-                            modifier = Modifier.clip(CircleShape).noRippleClickable { if (!loading) restart() }.padding(horizontal = 10.dp, vertical = 8.dp))
-                    }
-                }
-                if (!configured) {
-                    item { Text("Rispondi a qualche domanda semplice e l'IA prova a indovinare il film o la serie che hai in mente. Prima collega il tuo account Cloudflare.", color = Muted, fontSize = 15.sp, lineHeight = 21.sp) }
-                    item { AiSetupCard(onConfiguredChange = { configured = it }) }
-                    return@LazyColumn
-                }
-                // Read step here: this lambda runs at measure time, after "done" was computed for the last composition.
-                val stepIndex = step
-                if (stepIndex < FIND_TITLE_STEPS.size) {
-                    val current = FIND_TITLE_STEPS[stepIndex]
-                    val selected = selections[stepIndex].orEmpty()
-                    val text = texts[stepIndex].orEmpty()
-                    val canContinue = if (current.required) text.isNotBlank() else true
-                    item {
-                        Column {
-                            Text("Domanda ${stepIndex + 1} di ${FIND_TITLE_STEPS.size}", color = Muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            LinearProgressIndicator(
-                                progress = { (stepIndex + 1f) / FIND_TITLE_STEPS.size },
-                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(6.dp).clip(CircleShape),
-                                color = AiViolet, trackColor = Sw.Raised, drawStopIndicator = {}
-                            )
-                        }
-                    }
-                    item {
-                        AnimatedContent(
-                            stepIndex,
-                            transitionSpec = { (fadeIn(tween(260, 60)) + androidx.compose.animation.slideInHorizontally(tween(380, easing = Sw.Emphasized)) { it / 5 }) togetherWith fadeOut(tween(140)) },
-                            label = "find-title-step"
-                        ) { index ->
-                            val shown = FIND_TITLE_STEPS[index]
-                            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                Text(shown.question, style = MaterialTheme.typography.headlineSmall, color = Ink, fontWeight = FontWeight.ExtraBold)
-                                Text(shown.hint, color = Muted, fontSize = 15.sp, lineHeight = 21.sp)
-                                if (shown.options.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    shown.options.forEach { option ->
-                                        val active = option in selections[index].orEmpty()
-                                        Box(
-                                            Modifier.clip(CircleShape)
-                                                .background(if (active) AiViolet.copy(alpha = .22f) else Sw.Raised)
-                                                .border(1.dp, if (active) AiViolet else Color.White.copy(alpha = .06f), CircleShape)
-                                                .noRippleClickable {
-                                                    val now = selections[index].orEmpty()
-                                                    selections[index] = when {
-                                                        !shown.multiple -> if (active) emptySet() else setOf(option)
-                                                        option == DONT_REMEMBER -> if (active) emptySet() else setOf(option)
-                                                        active -> now - option
-                                                        else -> now - DONT_REMEMBER + option
-                                                    }
-                                                    // Single-choice questions move on by themselves.
-                                                    if (!shown.multiple && !active) step = index + 1
-                                                }
-                                                .padding(horizontal = 16.dp, vertical = 10.dp)
-                                        ) { Text(option, color = if (active) Color.White else Ink.copy(alpha = .85f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
-                                    }
-                                }
-                                if (shown.placeholder != null) Box(
-                                    Modifier.fillMaxWidth().heightIn(min = 120.dp).clip(RoundedCornerShape(24.dp))
-                                        .background(Sw.Surface)
-                                        .border(1.dp, Brush.linearGradient(listOf(AiViolet.copy(alpha = .5f), Sw.Red.copy(alpha = .3f))), RoundedCornerShape(24.dp))
-                                        .padding(16.dp)
-                                ) {
-                                    androidx.compose.foundation.text.BasicTextField(
-                                        value = texts[index].orEmpty(),
-                                        onValueChange = { texts[index] = it.take(400) },
-                                        textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 16.sp, lineHeight = 22.sp),
-                                        cursorBrush = androidx.compose.ui.graphics.SolidColor(AiViolet),
-                                        modifier = Modifier.fillMaxWidth(),
-                                        decorationBox = { inner ->
-                                            Box {
-                                                if (texts[index].isNullOrEmpty()) Text(shown.placeholder, color = Muted, fontSize = 16.sp, lineHeight = 22.sp)
-                                                inner()
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    item {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            if (stepIndex > 0) OutlinedButton({ step-- }, Modifier.weight(1f).height(54.dp), shape = CircleShape) { Text("Indietro") }
-                            val last = stepIndex == FIND_TITLE_STEPS.size - 1
-                            Button(
-                                onClick = { if (last) { step++; search() } else step++ },
-                                enabled = canContinue,
-                                modifier = Modifier.weight(if (stepIndex > 0) 1.6f else 1f).height(54.dp)
-                                    .background(if (canContinue) Brush.linearGradient(listOf(AiViolet, Sw.Red)) else Brush.linearGradient(listOf(Sw.Raised, Sw.Raised)), CircleShape),
-                                shape = CircleShape,
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White, disabledContainerColor = Color.Transparent, disabledContentColor = Muted)
-                            ) {
-                                if (last) { Icon(painterResource(R.drawable.ic_sparkles), null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)) }
-                                Text(
-                                    when {
-                                        last -> "Trova il titolo"
-                                        current.required || current.multiple || selected.isNotEmpty() || text.isNotBlank() -> "Avanti"
-                                        else -> "Salta"
-                                    },
-                                    fontWeight = FontWeight.Bold, fontSize = 16.sp
-                                )
-                            }
-                        }
-                    }
-                    return@LazyColumn
-                }
-                item {
-                    Text(
-                        if (loading) "Sto ripensando ai tuoi indizi…" else if (results.isNotEmpty()) "Forse cercavi uno di questi. Tocca quello giusto per aprirlo." else "",
-                        color = Muted, fontSize = 15.sp, lineHeight = 21.sp
-                    )
-                }
-                if (loading) items(3) {
-                    Row(Modifier.fillMaxWidth().glass(RoundedCornerShape(22.dp)).padding(10.dp)) {
-                        LoadingSkeleton(Modifier.size(84.dp, 124.dp).clip(RoundedCornerShape(14.dp)))
-                        Column(Modifier.weight(1f).padding(start = 14.dp, top = 6.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            LoadingSkeleton(Modifier.fillMaxWidth(.4f).height(10.dp).clip(CircleShape))
-                            LoadingSkeleton(Modifier.fillMaxWidth(.8f).height(16.dp).clip(CircleShape))
-                            LoadingSkeleton(Modifier.fillMaxWidth().height(12.dp).clip(CircleShape))
-                        }
-                    }
-                }
-                else itemsIndexed(results, key = { _, item -> item.first.id }) { index, (media, reason) ->
-                    AiResultCard(media, reason, Modifier.reveal(delayMillis = index * 70, distance = 24.dp)) { onOpen(media) }
-                }
-                error?.let { message -> item { Text(message, color = DislikeRed, fontSize = 14.sp, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center) } }
-                if (!loading) item {
-                    Surface(color = Panel, shape = RoundedCornerShape(24.dp), border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-                        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(if (results.isEmpty()) "Proviamo ancora" else "Non è nessuno di questi?", style = MaterialTheme.typography.titleLarge, color = Ink)
-                            Text(question.ifBlank { "Aggiungi un dettaglio che ricordi: un attore, una scena, un luogo." }, color = Muted, fontSize = 15.sp, lineHeight = 21.sp)
-                            if (options.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                options.forEach { option ->
-                                    Box(
-                                        Modifier.clip(CircleShape).background(Sw.Raised).border(1.dp, AiViolet.copy(alpha = .4f), CircleShape)
-                                            .noRippleClickable { answerFollowUp(option) }
-                                            .padding(horizontal = 14.dp, vertical = 9.dp)
-                                    ) { Text(option, color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
-                                }
-                            }
-                            OutlinedTextField(
-                                value = followText,
-                                onValueChange = { followText = it.take(300) },
-                                placeholder = { Text("Oppure scrivi tu…") },
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                keyboardActions = KeyboardActions(onSearch = { answerFollowUp(followText) }),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Button(
-                                onClick = { answerFollowUp(followText) },
-                                enabled = followText.isNotBlank(),
-                                modifier = Modifier.fillMaxWidth().height(50.dp),
-                                shape = CircleShape,
-                                colors = ButtonDefaults.buttonColors(containerColor = AiViolet, contentColor = Color.White)
-                            ) { Text("Cerca ancora", fontWeight = FontWeight.Bold) }
-                        }
-                    }
-                }
-            }
-        }
+}
+
+@Composable
+private fun AiRunResults(run: AiRun, onOpen: (Models.Media) -> Unit) {
+    if (run.loading) { repeat(3) { AiResultSkeleton() }; return }
+    AiErrorText(run.error)
+    run.answer?.let { answer ->
+        if (answer.intro.isNotBlank()) Text(answer.intro, color = Ink, fontSize = 15.sp, lineHeight = 21.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+        AiAnswerResults(answer, onOpen)
     }
 }
 
-private fun normalizedTitle(value: String): String =
-    java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFD).lowercase().filter { it.isLetterOrDigit() }
+private val AI_TYPES = listOf("all", "movie", "tv")
 
-/**
- * Matches an AI pick to its TMDB entry. The AI gives the original title, while search results are sorted by
- * their Italian title, so a lesser namesake without poster or plot could win: candidates are scored on both
- * titles, the year and how complete their data is.
- */
-private fun resolveAiPick(api: TmdbApi, pick: AiPick): Models.Media? = runCatching {
-    val wanted = normalizedTitle(pick.title)
-    api.searchTitles(pick.title, null).toList().filter { it.mediaType == pick.type }.minWithOrNull(
-        compareBy<Models.Media>({ media ->
-            val titles = listOf(media.title, media.originalTitle).map(::normalizedTitle).filter { it.isNotEmpty() }
-            val titleScore = when {
-                titles.any { it == wanted } -> 0
-                titles.any { it.startsWith(wanted) || wanted.startsWith(it) } -> 1
-                titles.any { it.contains(wanted) || wanted.contains(it) } -> 2
-                else -> 4
-            }
-            val yearGap = media.year.toIntOrNull()?.let { year -> pick.year?.let { kotlin.math.abs(it - year) } }
-            val yearScore = when { pick.year == null -> 1; yearGap == null -> 3; yearGap == 0 -> 0; yearGap == 1 -> 1; else -> 4 }
-            val missingData = (if (media.poster.isBlank()) 3 else 0) + (if (media.overview.isBlank() || media.overview == "Trama non disponibile.") 1 else 0)
-            titleScore * 3 + yearScore * 2 + missingData
-        }, { -it.rating })
-    )
-}.getOrNull()
+@Composable
+private fun AiTypePills(type: String, onType: (String) -> Unit) {
+    SegmentedPills(listOf("Tutto", "Film", "Serie TV"), AI_TYPES.indexOf(type), Modifier.fillMaxWidth(), height = 42.dp) { onType(AI_TYPES[it]) }
+}
 
+private class AiTool(val label: String, val icon: Int, val title: String, val text: String)
+
+private val AI_TOOLS = listOf(
+    AiTool("Consigli", R.drawable.ic_sparkles, "Consigli su misura", "Dimmi cosa ti va: scelgo tra titoli veri, sui tuoi abbonamenti, e ti spiego perché."),
+    AiTool("Cerca a parole", R.drawable.ic_compass, "Cerca a parole", "Descrivi cosa cerchi come lo diresti a un amico: genere, epoca, paese, durata."),
+    AiTool("Stasera in TV", R.drawable.ic_tv_guide, "Stasera in TV", "I film e le serie in onda stasera in chiaro che fanno per te."),
+    AiTool("In due", R.drawable.ic_person, "Serata in due", "Scrivi cosa piace all'altra persona: trovo titoli che vanno bene a entrambi."),
+    AiTool("Sorprendimi", R.drawable.ic_star, "Sorprendimi", "Tre titoli che non ti aspetti, ma che secondo me ti piaceranno."),
+    AiTool("Ritrova", R.drawable.ic_search, FIND_TITLE, "Non ricordi il nome? Rispondi a qualche domanda e lo trovo io.")
+)
+
+/** "Assistente IA" as tabs (AiTools.tsx): one tab per feature; every tab keeps its state while switching. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AiScreen(api: TmdbApi, store: LibraryStore, onDismiss: () -> Unit, onOpen: (Models.Media) -> Unit) {
+private fun AiToolsScreen(api: TmdbApi, store: LibraryStore, onDismiss: () -> Unit, onOpen: (Models.Media) -> Unit) {
     val context = LocalContext.current
-    var configured by remember { mutableStateOf(AiAdvisor.configured(context)) }
-    var request by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
-    var type by remember { mutableStateOf("all") }
-    var loading by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var results by remember { mutableStateOf<List<Pair<Models.Media, String>>>(emptyList()) }
-    val suggested = remember { mutableStateListOf<String>() }
     val scope = rememberCoroutineScope()
-    val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
-    val entries = remember { store.all().toList() }
-    val liked = remember(entries) { entries.filter { it.liked == true }.map { it.media.title }.take(30) }
-    val disliked = remember(entries) { entries.filter { it.liked == false }.map { it.media.title }.take(15) }
-    val watching = remember(entries) { entries.filter { it.state == "progress" }.map { it.media.title }.take(15) }
-    val known = remember(entries) { entries.map { it.media.id }.toSet() }
-    val ask: () -> Unit = {
-        if (!loading) {
-            focusManager.clearFocus(force = true)
-            keyboard?.hide()
-            loading = true
-            error = null
-            scope.launch {
-                // Titles already proposed in this session are excluded, so "Altri consigli" brings new ones.
-                val exclude = (entries.map { it.media.title } + suggested).takeLast(80)
-                val picks = withContext(Dispatchers.IO) { runCatching { AiAdvisor.recommend(context, type, request.trim(), liked, disliked, watching, exclude) } }
-                val resolved = withContext(Dispatchers.IO) {
-                    coroutineScope { picks.getOrDefault(emptyList()).map { pick -> async { resolveAiPick(api, pick)?.let { it to pick.reason } } }.awaitAll() }
-                }.filterNotNull().filter { (media, _) -> media.id !in known }.distinctBy { it.first.id }
-                picks.getOrNull()?.let { list -> suggested.addAll(list.map { it.title }) }
-                results = resolved
-                error = when {
-                    picks.isFailure -> (picks.exceptionOrNull() as? AiException)?.message ?: "Non riesco a contattare l'IA. Controlla la connessione e riprova."
-                    resolved.isEmpty() -> "Nessun titolo adatto questa volta. Prova a riformulare la richiesta."
-                    else -> null
+    var tab by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
+    val runs = remember { List(5) { AiRun() } }
+    val find = remember { FindTitleState() }
+    var request by remember { mutableStateOf("") }
+    var query by remember { mutableStateOf("") }
+    var duoTitles by remember { mutableStateOf("") }
+    var duoRequest by remember { mutableStateOf("") }
+    val types = remember { mutableStateListOf("all", "all", "all", "all", "all") }
+    val history = remember { mutableListOf<String>() }
+    BackHandler(onBack = onDismiss)
+    fun recommend(text: String) {
+        focusManager.clearFocus(force = true)
+        val past = history.toList()
+        history.add(text)
+        runs[0].start(scope, "Nessun titolo adatto questa volta. Prova a riformulare la richiesta.") { AiAdvisor.recommend(context, api, store, text, past, types[0], it) }
+    }
+    fun tonight() = runs[2].start(scope, "Stasera in TV non vedo niente di adatto a te.") { AiAdvisor.tonight(context, api, store) }
+    LaunchedEffect(tab) { if (tab == 2 && runs[2].answer == null && !runs[2].loading && AiAdvisor.configured(context)) tonight() }
+    AiPage("Assistente IA", "Consigli su misura, ricerca a parole, la TV di stasera, serate in due e titoli dimenticati.", onDismiss) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(top = 8.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Box(Modifier.padding(horizontal = 20.dp)) { AiHeader("Assistente IA", onDismiss) }
+            ChipTabs(AI_TOOLS.map { it.label to null }, tab) { tab = it }
+            val tool = AI_TOOLS[tab]
+            Row(
+                Modifier.padding(horizontal = 20.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp))
+                    .background(Brush.linearGradient(listOf(Color(0xFF26123F), Color(0xFF1A1426), Color(0xFF3A0F1E))))
+                    .border(1.dp, AiViolet.copy(alpha = .4f), RoundedCornerShape(24.dp)).padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(Modifier.size(46.dp).clip(CircleShape).background(AiGradient), contentAlignment = Alignment.Center) { Icon(painterResource(tool.icon), null, tint = Color.White, modifier = Modifier.size(23.dp)) }
+                Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                    Text(tool.title, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                    Text(tool.text, color = Color.White.copy(alpha = .7f), fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 2.dp))
                 }
-                loading = false
+            }
+            Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                when (tab) {
+                    0 -> {
+                        AiTextArea(request, { request = it }, "Cosa ti va stasera? Ad esempio: qualcosa di leggero, che duri meno di due ore", onSend = { history.clear(); recommend(request) })
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("Qualcosa di leggero", "Un thriller che non mi aspetto", "Una serie breve", "Da vedere in coppia", "Un classico da recuperare").forEach { idea -> AiChip(idea, request == idea) { request = idea } }
+                        }
+                        AiTypePills(types[0]) { types[0] = it }
+                        AiButton(if (runs[0].loading) "Sto pensando ai tuoi gusti…" else "Consigliami", runs[0].loading) { history.clear(); recommend(request) }
+                        AiRunResults(runs[0], onOpen)
+                        if (!runs[0].loading && runs[0].answer?.results?.isNotEmpty() == true) {
+                            Text("Affina la ricerca", color = Muted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("Più leggero", "Più impegnativo", "Più recente", "Altre idee").forEach { r -> AiChip(r) { recommend(if (r == "Altre idee") "Altre idee, diverse dalle precedenti" else r) } }
+                            }
+                        }
+                    }
+                    1 -> {
+                        val go = { if (query.isNotBlank()) { focusManager.clearFocus(force = true); runs[1].start(scope, "Nel catalogo non c'è niente che corrisponda. Prova a descriverlo diversamente.") { AiAdvisor.search(context, api, store, query, types[1], it) } } }
+                        AiTextArea(query, { query = it }, "Es. thriller coreani degli anni 2000 sotto le due ore", minHeight = 80.dp, onSend = go)
+                        AiTypePills(types[1]) { types[1] = it }
+                        AiButton(if (runs[1].loading) "Cerco nel catalogo…" else if (runs[1].answer != null) "Altri risultati" else "Cerca", runs[1].loading, enabled = query.isNotBlank(), onClick = go)
+                        AiRunResults(runs[1], onOpen)
+                    }
+                    2 -> {
+                        AiRunResults(runs[2], onOpen)
+                        if (!runs[2].loading) AiButton("Chiedi di nuovo", false, height = 50.dp) { tonight() }
+                    }
+                    3 -> {
+                        val titles = duoTitles.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+                        val go = { if (titles.isNotEmpty()) { focusManager.clearFocus(force = true); runs[3].start(scope, "Non ho trovato titoli che mettano d'accordo tutti e due. Prova con altri titoli.") { AiAdvisor.duo(context, api, store, titles, duoRequest, types[3], it) } } }
+                        AiTextArea(duoTitles, { duoTitles = it }, "Cosa piace all'altra persona? Es. Friends, La La Land, Stranger Things", minHeight = 80.dp)
+                        AiTextArea(duoRequest, { duoRequest = it }, "Facoltativo: com'è la serata? Es. qualcosa che faccia ridere", minHeight = 56.dp, onSend = go)
+                        AiTypePills(types[3]) { types[3] = it }
+                        AiButton(if (runs[3].loading) "Cerco un compromesso…" else if (runs[3].answer != null) "Altre idee" else "Trova per tutti e due", runs[3].loading, enabled = titles.isNotEmpty(), onClick = go)
+                        AiRunResults(runs[3], onOpen)
+                    }
+                    4 -> {
+                        AiTypePills(types[4]) { types[4] = it }
+                        AiButton(if (runs[4].loading) "Preparo la sorpresa…" else if (runs[4].answer != null) "Un'altra sorpresa" else "Sorprendimi", runs[4].loading) {
+                            runs[4].start(scope, "Niente sorprese questa volta. Riprova tra poco.") { AiAdvisor.surprise(context, api, store, types[4], it) }
+                        }
+                        AiRunResults(runs[4], onOpen)
+                    }
+                    else -> {
+                        if (find.step > 0 || find.done) Row { Spacer(Modifier.weight(1f)); AiTextAction("Ricomincia") { if (!find.loading) find.restart() } }
+                        FindTitleFlow(api, find, onOpen)
+                    }
+                }
             }
         }
     }
+}
+
+private enum class AiChatMode(val label: String, val placeholder: String) {
+    RECOMMEND("", "Cosa ti va di guardare?"),
+    SEARCH("Cerca nel catalogo", "Es. thriller coreani degli anni 2000"),
+    IDENTIFY("Ritrova un titolo", "Racconta cosa ricordi…"),
+    DUO("Serata in due", "Titoli che piacciono all'altra persona")
+}
+
+private class AiMessage(val id: Long, val mine: Boolean, val text: String, val answer: AiAnswer? = null, val chips: List<String> = emptyList())
+
+private val AI_STARTERS = listOf(
+    "Cosa guardo stasera?" to R.drawable.ic_sparkles, "Stasera in TV" to R.drawable.ic_tv_guide, "Sorprendimi" to R.drawable.ic_star,
+    "Serata in due" to R.drawable.ic_person, FIND_TITLE to R.drawable.ic_search, "Cerca nel catalogo" to R.drawable.ic_compass
+)
+private val AI_REFINE = listOf("Più leggero", "Più impegnativo", "Più recente", "Solo film", "Solo serie", "Altre idee")
+private const val AI_WELCOME = "Ciao! Dimmi cosa ti va e ti propongo titoli veri, sui tuoi abbonamenti e spiegati uno per uno. Oppure parti da qui:"
+
+/** "Assistente IA" as a conversation (AiChat.tsx): chips start every feature, follow-up chips refine the last answer. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AiChatScreen(api: TmdbApi, store: LibraryStore, onDismiss: () -> Unit, onOpen: (Models.Media) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    var nextId by remember { mutableStateOf(1L) }
+    val messages = remember { mutableStateListOf(AiMessage(0, false, AI_WELCOME)) }
+    var mode by remember { mutableStateOf(AiChatMode.RECOMMEND) }
+    var type by remember { mutableStateOf("all") }
+    var text by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
+    // Context of the conversation: earlier requests, titles already shown, clues, the other person's titles.
+    val history = remember { mutableListOf<String>() }
+    val shown = remember { mutableListOf<String>() }
+    val clues = remember { mutableListOf<Pair<String, String>>() }
+    val excludedTitles = remember { mutableListOf<String>() }
+    var lastQuestion by remember { mutableStateOf("") }
+    var lastQuery by remember { mutableStateOf("") }
+    val duoTitles = remember { mutableListOf<String>() }
+    var lastAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val listState = rememberLazyListState()
     BackHandler(onBack = onDismiss)
-    Surface(Modifier.fillMaxSize(), color = Night) {
-        Box(Modifier.fillMaxSize()) {
-            Box(Modifier.align(Alignment.TopEnd).offset(x = 90.dp, y = (-90).dp).size(340.dp)
-                .background(Brush.radialGradient(listOf(AiViolet.copy(alpha = .22f), Color.Transparent)), CircleShape))
-            LazyColumn(
-                Modifier.fillMaxSize().statusBarsPadding(),
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 40.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                item {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        GlassIconButton(R.drawable.ic_back, "Indietro") { onDismiss() }
-                        Column(Modifier.padding(start = 14.dp)) {
-                            Text("INTELLIGENZA ARTIFICIALE", color = AiViolet, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp)
-                            Text(metroCase("Chiedi all'IA"), style = MaterialTheme.typography.headlineMedium, color = Ink)
-                        }
-                    }
+    LaunchedEffect(messages.size, loading) { listState.animateScrollToItem(maxOf(0, messages.size - 1 + if (loading) 1 else 0)) }
+
+    fun say(mine: Boolean, value: String, answer: AiAnswer? = null, chips: List<String> = emptyList()) { messages.add(AiMessage(nextId++, mine, value, answer, chips)) }
+    fun run(fallback: String, chips: (AiAnswer) -> List<String>, work: () -> AiAnswer) {
+        loading = true
+        lastAction = { run(fallback, chips, work) }
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { runCatching(work) }
+            result.getOrNull()?.let { answer ->
+                shown.addAll(answer.results.map { it.media.id })
+                val empty = answer.results.isEmpty() && answer.tv.isEmpty()
+                say(false, answer.intro.ifBlank { if (empty) fallback else "Ecco cosa ti propongo:" }, answer, chips(answer))
+            }
+            if (result.isFailure) say(false, aiErrorMessage(result.exceptionOrNull()), chips = listOf("Riprova"))
+            loading = false
+        }
+    }
+    fun recommend(request: String, nextType: String) {
+        val past = history.toList()
+        history.add(request)
+        run("Questa volta non ho trovato niente di adatto. Prova a dirmelo con altre parole.", { AI_REFINE }) { AiAdvisor.recommend(context, api, store, request, past, nextType, shown.toList()) }
+    }
+    fun send(raw: String) {
+        val value = raw.trim()
+        if (value.isEmpty() || loading) return
+        focusManager.clearFocus(force = true)
+        text = ""
+        say(true, value)
+        if (value == "Riprova") { lastAction?.invoke(); return }
+        when (mode) {
+            AiChatMode.SEARCH -> {
+                lastQuery = value
+                run("Nel catalogo non c'è niente che corrisponda. Prova a descriverlo diversamente.", { listOf("Altri risultati") }) { AiAdvisor.search(context, api, store, value, type, shown.toList()) }
+            }
+            AiChatMode.IDENTIFY -> {
+                clues.add(lastQuestion.ifBlank { "Cosa ricorda" } to value)
+                run("Non riesco ancora a capire quale sia. Aggiungi un dettaglio: un attore, una scena, un luogo.", { it.options }) {
+                    val answer = AiAdvisor.identify(context, api, clues.toList(), excludedTitles.toList())
+                    excludedTitles.addAll(answer.results.map { it.media.originalTitle.ifBlank { it.media.title } })
+                    lastQuestion = answer.question
+                    // The follow-up question is shown after the candidates, with its answers as chips.
+                    if (answer.question.isBlank()) answer
+                    else answer.copy(intro = listOf(answer.intro, if (answer.results.isNotEmpty()) "Se non è nessuno di questi: ${answer.question}" else answer.question).filter { it.isNotBlank() }.joinToString("\n\n"))
                 }
-                item {
-                    Text(
-                        if (liked.isEmpty()) "Dimmi cosa ti va e ti propongo qualcosa. Più titoli valuti con “Mi piace”, più i consigli diventano tuoi."
-                        else "Consigli basati sui ${liked.size} titoli che ti sono piaciuti e su ciò che mi chiedi.",
-                        color = Muted, fontSize = 15.sp, lineHeight = 21.sp
-                    )
+            }
+            AiChatMode.DUO -> {
+                val first = duoTitles.isEmpty()
+                if (first) duoTitles.addAll(value.split(Regex(",|\\se\\s|\\n")).map { it.trim() }.filter { it.isNotEmpty() })
+                if (duoTitles.isEmpty()) { say(false, "Scrivimi almeno un titolo, separando i titoli con una virgola."); return }
+                run("Non ho trovato titoli che mettano d'accordo tutti e due. Prova con altri titoli.", { AI_REFINE - "Solo film" - "Solo serie" }) {
+                    AiAdvisor.duo(context, api, store, duoTitles.toList(), if (first) "" else value, type, shown.toList())
                 }
-                if (!configured) {
-                    item { AiSetupCard(onConfiguredChange = { configured = it }) }
-                    return@LazyColumn
-                }
-                item {
-                    Box(
-                        Modifier.fillMaxWidth().heightIn(min = 104.dp).clip(RoundedCornerShape(24.dp))
-                            .background(Sw.Surface)
-                            .border(1.dp, Brush.linearGradient(listOf(AiViolet.copy(alpha = .5f), Sw.Red.copy(alpha = .3f))), RoundedCornerShape(24.dp))
-                            .padding(16.dp)
-                    ) {
-                        androidx.compose.foundation.text.BasicTextField(
-                            value = request,
-                            onValueChange = { request = it.take(300) },
-                            textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 16.sp, lineHeight = 22.sp),
-                            cursorBrush = androidx.compose.ui.graphics.SolidColor(AiViolet),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                            keyboardActions = KeyboardActions(onSend = { ask() }),
-                            modifier = Modifier.fillMaxWidth(),
-                            decorationBox = { inner ->
-                                Box {
-                                    if (request.isEmpty()) Text("Cosa ti va stasera? Ad esempio: qualcosa di leggero, che duri meno di due ore", color = Muted, fontSize = 16.sp, lineHeight = 22.sp)
-                                    inner()
-                                }
-                            }
+            }
+            AiChatMode.RECOMMEND -> {
+                val nextType = when (value) { "Solo film" -> "movie"; "Solo serie" -> "tv"; else -> type }
+                type = nextType
+                recommend(if (value == "Altre idee") "Altre idee, diverse dalle precedenti" else value, nextType)
+            }
+        }
+    }
+    fun surprise() = run("Niente sorprese questa volta. Riprova tra poco.", { listOf("Un'altra sorpresa") }) { AiAdvisor.surprise(context, api, store, type, shown.toList()) }
+    fun start(starter: String) {
+        if (loading) return
+        if (starter == "Cosa guardo stasera?") { mode = AiChatMode.RECOMMEND; send(starter); return }
+        say(true, starter)
+        when (starter) {
+            "Stasera in TV" -> run("Stasera in TV non vedo niente di adatto a te.", { emptyList() }) { AiAdvisor.tonight(context, api, store) }
+            "Sorprendimi" -> surprise()
+            "Serata in due" -> { mode = AiChatMode.DUO; duoTitles.clear(); say(false, "Bello! Scrivimi due o tre titoli che piacciono all'altra persona, separati da una virgola: trovo qualcosa che vada bene a tutti e due.") }
+            FIND_TITLE -> { mode = AiChatMode.IDENTIFY; clues.clear(); excludedTitles.clear(); lastQuestion = ""; say(false, "Proviamo! Raccontami cosa ricordi: la trama, una scena, un attore, più o meno l'anno o se era un film o una serie.") }
+            "Cerca nel catalogo" -> { mode = AiChatMode.SEARCH; say(false, "Descrivimi cosa cerchi, anche in modo preciso: genere, epoca, paese, durata. Lo cerco nel catalogo.") }
+        }
+    }
+    fun chip(value: String) = when (value) {
+        "Un'altra sorpresa" -> { say(true, value); surprise() }
+        "Altri risultati" -> send(lastQuery)
+        else -> send(value)
+    }
+    fun reset() {
+        if (loading) return
+        messages.clear(); messages.add(AiMessage(0, false, AI_WELCOME)); mode = AiChatMode.RECOMMEND; type = "all"
+        history.clear(); shown.clear(); clues.clear(); excludedTitles.clear(); duoTitles.clear(); lastQuestion = ""
+    }
+
+    AiPage("Assistente IA", "Chiedi consigli, cosa c'è stasera in TV, cosa guardare in due o ritrova un titolo di cui non ricordi il nome.", onDismiss) {
+        Box(Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 10.dp)) {
+            AiHeader("Assistente IA", onDismiss, trailing = if (messages.size > 1) ({ AiTextAction("Nuova chat") { reset() } }) else null)
+        }
+        LazyColumn(
+            Modifier.weight(1f).fillMaxWidth(),
+            state = listState,
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            itemsIndexed(messages, key = { _, m -> m.id }) { index, m ->
+                Column(Modifier.fillMaxWidth().reveal(distance = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = if (m.mine) Alignment.End else Alignment.Start) {
+                    if (m.mine) Text(
+                        m.text, color = Color.White, fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.fillMaxWidth(.82f).wrapContentWidth(Alignment.End).clip(RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp)).background(AiGradient).padding(horizontal = 14.dp, vertical = 10.dp)
+                    ) else Row(verticalAlignment = Alignment.Top) {
+                        Box(Modifier.size(32.dp).clip(CircleShape).background(AiGradient), contentAlignment = Alignment.Center) { Icon(painterResource(R.drawable.ic_sparkles), null, tint = Color.White, modifier = Modifier.size(17.dp)) }
+                        Text(
+                            m.text, color = Ink, fontSize = 15.sp, lineHeight = 21.sp,
+                            modifier = Modifier.padding(start = 10.dp).clip(RoundedCornerShape(6.dp, 20.dp, 20.dp, 20.dp)).background(Sw.Surface)
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp, 20.dp, 20.dp, 20.dp)).padding(horizontal = 14.dp, vertical = 10.dp)
                         )
                     }
+                    m.answer?.let { Box(Modifier.padding(start = 42.dp)) { AiAnswerResults(it, onOpen) } }
+                    val chips = if (index == 0 && messages.size == 1) null else if (index == messages.lastIndex && !loading) m.chips else null
+                    if (index == 0 && messages.size == 1) FlowRow(Modifier.padding(start = 42.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AI_STARTERS.forEach { (label, icon) -> AiChip(label, icon = icon) { start(label) } }
+                    }
+                    if (!chips.isNullOrEmpty()) FlowRow(Modifier.padding(start = 42.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        chips.forEach { c -> AiChip(c) { chip(c) } }
+                    }
                 }
-                item {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Qualcosa di leggero", "Un thriller che non mi aspetto", "Una serie breve", "Da vedere in coppia", "Un classico da recuperare").forEach { idea ->
-                            val active = request == idea
-                            Box(
-                                Modifier.clip(CircleShape)
-                                    .background(if (active) AiViolet.copy(alpha = .22f) else Sw.Raised)
-                                    .border(1.dp, if (active) AiViolet else Color.White.copy(alpha = .06f), CircleShape)
-                                    .noRippleClickable { request = idea }
-                                    .padding(horizontal = 14.dp, vertical = 8.dp)
-                            ) { Text(idea, color = if (active) Color.White else Ink.copy(alpha = .85f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+            }
+            if (loading) item(key = "typing") {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(32.dp).clip(CircleShape).background(AiGradient), contentAlignment = Alignment.Center) { Icon(painterResource(R.drawable.ic_sparkles), null, tint = Color.White, modifier = Modifier.size(17.dp)) }
+                        Box(Modifier.padding(start = 10.dp).clip(RoundedCornerShape(6.dp, 20.dp, 20.dp, 20.dp)).background(Sw.Surface).padding(horizontal = 16.dp, vertical = 12.dp)) {
+                            PulsingDot(AiViolet)
                         }
                     }
+                    Column(Modifier.padding(start = 42.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(2) { AiResultSkeleton(3) } }
                 }
-                item {
-                    SegmentedPills(listOf("Tutto", "Film", "Serie TV"), listOf("all", "movie", "tv").indexOf(type), Modifier.fillMaxWidth(), height = 42.dp) {
-                        type = listOf("all", "movie", "tv")[it]
-                    }
+            }
+        }
+        Column(
+            Modifier.fillMaxWidth().background(Night).navigationBarsPadding().imePadding().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (messages.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (mode != AiChatMode.RECOMMEND) AiChip("${mode.label}  ✕", active = true) { mode = AiChatMode.RECOMMEND }
+                AI_STARTERS.filter { it.first != mode.label }.forEach { (label, icon) -> AiChip(label, icon = icon) { start(label) } }
+            }
+            Row(verticalAlignment = Alignment.Bottom) {
+                Box(
+                    Modifier.weight(1f).clip(RoundedCornerShape(24.dp)).background(Sw.Surface).border(1.dp, AiViolet.copy(alpha = .45f), RoundedCornerShape(24.dp))
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                ) {
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = text,
+                        onValueChange = { text = it.take(400) },
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 16.sp, lineHeight = 22.sp),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(AiViolet),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(onSend = { send(text) }),
+                        maxLines = 4,
+                        modifier = Modifier.fillMaxWidth(),
+                        decorationBox = { inner -> Box { if (text.isEmpty()) Text(mode.placeholder, color = Muted, fontSize = 16.sp); inner() } }
+                    )
                 }
-                item {
-                    Button(
-                        onClick = ask,
-                        enabled = !loading,
-                        modifier = Modifier.fillMaxWidth().height(56.dp)
-                            .shadow(14.dp, CircleShape, ambientColor = AiViolet, spotColor = AiViolet)
-                            .background(Brush.linearGradient(listOf(AiViolet, Sw.Red)), CircleShape),
-                        shape = CircleShape,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White, disabledContainerColor = Color.Transparent, disabledContentColor = Color.White)
-                    ) {
-                        AnimatedContent(loading, label = "ai-button") { busy ->
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-                                else Icon(painterResource(R.drawable.ic_sparkles), null, Modifier.size(21.dp))
-                                Spacer(Modifier.width(10.dp))
-                                Text(if (busy) "Sto pensando ai tuoi gusti…" else if (results.isEmpty()) "Consigliami" else "Altri consigli", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            }
-                        }
-                    }
-                }
-                error?.let { message -> item { Text(message, color = DislikeRed, fontSize = 14.sp, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center) } }
-                if (loading) items(3) {
-                    Row(Modifier.fillMaxWidth().glass(RoundedCornerShape(22.dp)).padding(10.dp)) {
-                        LoadingSkeleton(Modifier.size(84.dp, 124.dp).clip(RoundedCornerShape(14.dp)))
-                        Column(Modifier.weight(1f).padding(start = 14.dp, top = 6.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            LoadingSkeleton(Modifier.fillMaxWidth(.4f).height(10.dp).clip(CircleShape))
-                            LoadingSkeleton(Modifier.fillMaxWidth(.8f).height(16.dp).clip(CircleShape))
-                            LoadingSkeleton(Modifier.fillMaxWidth().height(12.dp).clip(CircleShape))
-                            LoadingSkeleton(Modifier.fillMaxWidth(.7f).height(12.dp).clip(CircleShape))
-                        }
-                    }
-                }
-                else itemsIndexed(results, key = { _, item -> item.first.id }) { index, (media, reason) ->
-                    AiResultCard(media, reason, Modifier.reveal(delayMillis = index * 70, distance = 24.dp)) { onOpen(media) }
-                }
+                val canSend = text.isNotBlank() && !loading
+                Box(
+                    Modifier.padding(start = 10.dp).size(48.dp).clip(CircleShape).background(if (canSend) AiGradient else androidx.compose.ui.graphics.SolidColor(Sw.Raised))
+                        .noRippleClickable { if (canSend) send(text) },
+                    contentAlignment = Alignment.Center
+                ) { Icon(painterResource(R.drawable.ic_arrow_forward), "Invia", tint = Color.White, modifier = Modifier.size(22.dp)) }
             }
         }
     }
 }
 
+/** Opens the hub chosen in Settings. */
 @Composable
-private fun AiResultCard(media: Models.Media, reason: String, modifier: Modifier, open: () -> Unit) {
-    val sourceKey = rememberArtworkSourceKey(media)
-    val registerSource = LocalRegisterArtworkSource.current
-    Row(
-        modifier.fillMaxWidth()
-            .noRippleClickable { registerSource(sourceKey); open() }
-            .glass(RoundedCornerShape(22.dp))
-            .padding(10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        SharedArtworkSource(media, sourceKey, Modifier.size(84.dp, 124.dp), RoundedCornerShape(14.dp))
-        Column(Modifier.weight(1f).padding(start = 14.dp, end = 4.dp)) {
-            Text("${if (media.isSeries) "SERIE TV" else "FILM"} · ${media.year}", color = Sw.Accent, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp)
-            Text(media.title, color = Ink, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
-            if (reason.isNotBlank()) Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.Top) {
-                Icon(painterResource(R.drawable.ic_sparkles), null, tint = AiViolet, modifier = Modifier.padding(top = 2.dp).size(14.dp))
-                Text(reason.replaceFirstChar { it.uppercase() }, color = Muted, fontSize = 13.sp, lineHeight = 18.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, modifier = Modifier.padding(start = 6.dp))
-            }
-        }
-    }
+private fun AiHubScreen(api: TmdbApi, store: LibraryStore, onDismiss: () -> Unit, onOpen: (Models.Media) -> Unit) {
+    val context = LocalContext.current
+    if (remember { AiAdvisor.hubStyle(context) } == "tabs") AiToolsScreen(api, store, onDismiss, onOpen) else AiChatScreen(api, store, onDismiss, onOpen)
 }
 
-/** "Simili secondo l'IA" in a title's detail: asks Workers AI for related films and series on demand. */
+// ---- in a title's detail ----
+
+/** "Simili secondo l'IA": TMDB's related titles, ranked and explained by the AI, on demand. */
 @Composable
 private fun AiSimilarSection(media: Models.Media, api: TmdbApi, store: LibraryStore, onOpen: (Models.Media) -> Unit) {
     val context = LocalContext.current
@@ -1255,67 +1487,105 @@ private fun AiSimilarSection(media: Models.Media, api: TmdbApi, store: LibrarySt
     var setupVisible by remember(media.id) { mutableStateOf(false) }
     var loading by remember(media.id) { mutableStateOf(false) }
     var error by remember(media.id) { mutableStateOf<String?>(null) }
-    var results by remember(media.id) { mutableStateOf<List<Pair<Models.Media, String>>>(emptyList()) }
-    val suggested = remember(media.id) { mutableStateListOf<String>() }
+    var results by remember(media.id) { mutableStateOf<List<AiResult>>(emptyList()) }
     lateinit var ask: () -> Unit
     ask = {
         if (!AiAdvisor.configured(context)) { configured = false; setupVisible = true }
         else if (!loading) scope.launch {
             loading = true
             error = null
-            val entries = store.all().toList()
-            val liked = entries.filter { it.liked == true }.map { it.media.title }.take(15)
             // Titles already proposed for this one are excluded, so "Altri simili" brings new ones.
-            val exclude = (entries.filter { it.state == "watched" }.map { it.media.title } + suggested).takeLast(60)
-            val year = media.year.takeIf { it.isNotEmpty() && it.all(Char::isDigit) }.orEmpty()
-            val picks = withContext(Dispatchers.IO) {
-                runCatching { AiAdvisor.similar(context, media.originalTitle.ifBlank { media.title }, year, media.mediaType, media.genres.toList(), liked, exclude) }
-            }
-            val resolved = withContext(Dispatchers.IO) {
-                coroutineScope { picks.getOrDefault(emptyList()).map { pick -> async { resolveAiPick(api, pick)?.let { it to pick.reason } } }.awaitAll() }
-            }.filterNotNull().filter { (candidate, _) -> candidate.id != media.id && results.none { it.first.id == candidate.id } }.distinctBy { it.first.id }
-            picks.getOrNull()?.let { list -> suggested.addAll(list.map { it.title }) }
-            results = results + resolved
-            error = when {
-                picks.isFailure -> (picks.exceptionOrNull() as? AiException)?.message ?: "Non riesco a contattare l'IA. Controlla la connessione e riprova."
-                resolved.isEmpty() -> "Nessun nuovo titolo simile trovato questa volta. Riprova."
-                else -> null
-            }
+            val exclude = results.map { it.media.id }
+            val answer = withContext(Dispatchers.IO) { runCatching { AiAdvisor.similar(context, api, store, media, exclude) } }
+            answer.getOrNull()?.let { results = results + it.results; if (it.results.isEmpty()) error = "Nessun nuovo titolo simile trovato questa volta. Riprova." }
+            if (answer.isFailure) error = aiErrorMessage(answer.exceptionOrNull())
             loading = false
         }
     }
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp).animateContentSize(tween(320, easing = Sw.Emphasized)), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Simili secondo l'IA", style = MaterialTheme.typography.titleLarge, color = Ink)
-        Text("Film e serie che condividono atmosfera, temi e tono di “${media.title}”, con il motivo di ogni scelta.", color = Muted, fontSize = 14.sp, lineHeight = 20.sp)
-        results.forEachIndexed { index, (item, reason) ->
-            key(item.id) { AiResultCard(item, reason, Modifier.reveal(delayMillis = index % 8 * 70, distance = 24.dp)) { onOpen(item) } }
+        Text("Titoli che condividono atmosfera, temi e tono di “${media.title}”, con il motivo di ogni scelta e dove vederli.", color = Muted, fontSize = 14.sp, lineHeight = 20.sp)
+        results.forEachIndexed { index, r ->
+            key(r.media.id) { AiResultCard(r.media, r.reason, Modifier.reveal(delayMillis = index % 8 * 70, distance = 24.dp), r.providers) { onOpen(r.media) } }
         }
-        if (loading) repeat(2) {
-            Row(Modifier.fillMaxWidth().glass(RoundedCornerShape(22.dp)).padding(10.dp)) {
-                LoadingSkeleton(Modifier.size(84.dp, 124.dp).clip(RoundedCornerShape(14.dp)))
-                Column(Modifier.weight(1f).padding(start = 14.dp, top = 6.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    LoadingSkeleton(Modifier.fillMaxWidth(.4f).height(10.dp).clip(CircleShape))
-                    LoadingSkeleton(Modifier.fillMaxWidth(.8f).height(16.dp).clip(CircleShape))
-                    LoadingSkeleton(Modifier.fillMaxWidth().height(12.dp).clip(CircleShape))
+        if (loading) repeat(2) { AiResultSkeleton(3) }
+        AiErrorText(error)
+        if (setupVisible && !configured) AiSetupCard(onConfiguredChange = { ready -> configured = ready; if (ready) { setupVisible = false; ask() } })
+        else AiButton(if (loading) "Cerco titoli simili…" else if (results.isEmpty()) "Trova simili con l'IA" else "Altri simili", loading, height = 54.dp) { ask() }
+    }
+}
+
+/** A ring with the match score. */
+@Composable
+private fun ScoreRing(score: Int) {
+    val progress = remember { Animatable(0f) }
+    LaunchedEffect(score) { progress.animateTo(score / 100f, tween(900, easing = Sw.Emphasized)) }
+    val color = when { score >= 70 -> LikeGreen; score >= 45 -> AiViolet; else -> DislikeRed }
+    val track = Sw.Raised
+    Box(Modifier.size(64.dp), contentAlignment = Alignment.Center) {
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize().padding(3.dp)) {
+            val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = 6.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            drawArc(track, 0f, 360f, false, style = stroke)
+            drawArc(color, -90f, 360f * progress.value, false, style = stroke)
+        }
+        Text("$score%", color = Ink, fontWeight = FontWeight.Black, fontSize = 17.sp)
+    }
+}
+
+/** "Ti piacerà?": an honest verdict on how well this title fits the user's taste. */
+@Composable
+private fun AiVerdictSection(media: Models.Media, store: LibraryStore) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var configured by remember { mutableStateOf(AiAdvisor.configured(context)) }
+    var setupVisible by remember(media.id) { mutableStateOf(false) }
+    var loading by remember(media.id) { mutableStateOf(false) }
+    var error by remember(media.id) { mutableStateOf<String?>(null) }
+    var verdict by remember(media.id) { mutableStateOf<AiVerdict?>(null) }
+    lateinit var ask: () -> Unit
+    ask = {
+        if (!AiAdvisor.configured(context)) { configured = false; setupVisible = true }
+        else if (!loading) scope.launch {
+            loading = true
+            error = null
+            val result = withContext(Dispatchers.IO) { runCatching { AiAdvisor.why(context, store, media) } }
+            verdict = result.getOrNull()
+            if (result.isFailure) error = aiErrorMessage(result.exceptionOrNull())
+            loading = false
+        }
+    }
+    val shape = RoundedCornerShape(24.dp)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp).animateContentSize(tween(320, easing = Sw.Emphasized)), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        val current = verdict
+        if (current != null) Column(
+            Modifier.fillMaxWidth().reveal(distance = 16.dp).clip(shape).background(Sw.Surface).border(1.dp, AiViolet.copy(alpha = .45f), shape).padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ScoreRing(current.score)
+                Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                    Text("TI PIACERÀ?", color = AiViolet, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp)
+                    Text(current.verdict, color = Ink, fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 2.dp))
                 }
             }
+            current.pros.forEach { p -> Row(verticalAlignment = Alignment.CenterVertically) { Icon(painterResource(R.drawable.ic_check), null, tint = LikeGreen, modifier = Modifier.size(18.dp)); Text(p, color = Ink, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.padding(start = 8.dp)) } }
+            current.cons.forEach { p -> Row(verticalAlignment = Alignment.CenterVertically) { Icon(painterResource(R.drawable.ic_close), null, tint = DislikeRed, modifier = Modifier.size(18.dp)); Text(p, color = Muted, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.padding(start = 8.dp)) } }
         }
-        error?.let { Text(it, color = DislikeRed, fontSize = 14.sp, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
-        if (setupVisible && !configured) AiSetupCard(onConfiguredChange = { ready -> configured = ready; if (ready) { setupVisible = false; ask() } })
-        else Button(
-            onClick = ask,
-            enabled = !loading,
-            modifier = Modifier.fillMaxWidth().height(54.dp)
-                .shadow(12.dp, CircleShape, ambientColor = AiViolet, spotColor = AiViolet)
-                .background(Brush.linearGradient(listOf(AiViolet, Sw.Red)), CircleShape),
-            shape = CircleShape,
-            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White, disabledContainerColor = Color.Transparent, disabledContentColor = Color.White)
+        else if (setupVisible && !configured) AiSetupCard(onConfiguredChange = { ready -> configured = ready; if (ready) { setupVisible = false; ask() } })
+        else Row(
+            Modifier.fillMaxWidth().clip(shape).background(Sw.Surface).border(1.dp, AiViolet.copy(alpha = .45f), shape).noRippleClickable { ask() }.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-            else Icon(painterResource(R.drawable.ic_sparkles), null, Modifier.size(21.dp))
-            Spacer(Modifier.width(10.dp))
-            Text(if (loading) "Cerco titoli simili…" else if (results.isEmpty()) "Trova simili con l'IA" else "Altri simili", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Box(Modifier.size(46.dp).clip(CircleShape).background(AiGradient), contentAlignment = Alignment.Center) {
+                if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                else Icon(painterResource(R.drawable.ic_sparkles), null, tint = Color.White, modifier = Modifier.size(22.dp))
+            }
+            Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                Text(if (loading) "Ci penso un attimo…" else "Ti piacerà?", color = Ink, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                Text("L'IA lo confronta con i tuoi gusti e ti dice pro e contro, senza spoiler", color = Muted, fontSize = 13.sp, lineHeight = 18.sp)
+            }
         }
+        AiErrorText(error)
     }
 }
 
@@ -1336,7 +1606,6 @@ private fun HomeScreen(
     onSettings: (Rect?) -> Unit,
     onAdvisor: (Boolean) -> Unit,
     onAskAi: (Rect?) -> Unit,
-    onFindTitle: (Rect?) -> Unit,
     onOpenLibrary: (LibrarySection) -> Unit,
     onDiscover: () -> Unit,
     onOpenGuide: () -> Unit,
@@ -1391,7 +1660,6 @@ private fun HomeScreen(
         }
         item { AdvisorCards(progress.isNotEmpty() || saved.isNotEmpty(), Modifier.reveal(90), onAdvisor) }
         item { AiAskCard(Modifier.padding(horizontal = 20.dp).reveal(120), onAskAi) }
-        item { FindTitleCard(Modifier.padding(horizontal = 20.dp).reveal(150), onFindTitle) }
         if (holiday != null && holidayMedia.any { it.id !in hidden }) item {
             HolidayRail(holiday, holidayMedia.filter { it.id !in hidden }, store, onOpen, onAction, onSeeAll = { onDiscover() }, onLoadMore = null, loadingMore = false)
         }
@@ -3071,6 +3339,7 @@ private fun DetailScreen(
                 item { ProviderGroups(media) }
                 if (saga.isNotEmpty()) item { MediaRail("Della stessa saga", saga, store, onOpen, onAction, contentVersion = refreshVersion, spacious = true) }
                 if (related.isNotEmpty()) item { MediaRail("Potrebbe piacerti", related, store, onOpen, onAction, contentVersion = refreshVersion, loadMore = if (relatedHasMore) loadMoreRelated else null, loadingMore = relatedLoadingMore, spacious = true) }
+                item(key = "ai-verdict-" + media.id) { AiVerdictSection(media, store) }
                 item(key = "ai-similar") { AiSimilarSection(media, api, store, onOpen) }
             }
         }
@@ -4714,7 +4983,7 @@ private fun AiSetupCard(modifier: Modifier = Modifier, onConfiguredChange: (Bool
                 }
             }
             Text(
-                "“Chiedi all'IA” usa Workers AI di Cloudflare con il tuo account personale. Il piano gratuito include una quota giornaliera di richieste, più che sufficiente per l'uso quotidiano, senza carta di credito.",
+                "L'assistente IA usa Workers AI di Cloudflare con il tuo account personale. Il piano gratuito include una quota giornaliera di richieste, più che sufficiente per l'uso quotidiano, senza carta di credito.",
                 color = Muted, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 8.dp)
             )
             Text(
@@ -4893,6 +5162,17 @@ private fun SettingsScreen(
                     }
                 }
                 item { AiSetupCard() }
+                item {
+                    val context = LocalContext.current
+                    var hubStyle by remember { mutableStateOf(AiAdvisor.hubStyle(context)) }
+                    Surface(color = Panel, shape = RoundedCornerShape(24.dp), border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                        Column(Modifier.padding(18.dp)) {
+                            Text("Assistente IA", style = MaterialTheme.typography.titleLarge, color = Ink)
+                            Text("Come si apre l'assistente: una chat in cui chiedi e affini a parole, oppure schede separate, una per funzione.", color = Muted, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp))
+                            SegmentedPills(listOf("Chat", "Schede"), if (hubStyle == "tabs") 1 else 0, Modifier.fillMaxWidth()) { hubStyle = if (it == 1) "tabs" else "chat"; AiAdvisor.setHubStyle(context, hubStyle) }
+                        }
+                    }
+                }
                 item {
                     var hideShows by remember { mutableStateOf(store.hideShowCredits()) }
                     Surface(color = Panel, shape = RoundedCornerShape(24.dp), border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
@@ -5250,6 +5530,7 @@ private fun AdvisorTypeChoice(label: String, icon: Int, selected: Boolean,
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun AdvisorSheet(api: TmdbApi, store: LibraryStore, libraryOnly: Boolean, onDismiss: () -> Unit, onOpen: (Models.Media, AdvisorRequest) -> Unit) {
+    val context = LocalContext.current
     var type by remember { mutableStateOf("all") }
     var genre by remember { mutableStateOf<TmdbApi.Genre?>(null) }
     var platform by remember { mutableStateOf<TmdbApi.Platform?>(null) }
@@ -5352,7 +5633,7 @@ private fun AdvisorSheet(api: TmdbApi, store: LibraryStore, libraryOnly: Boolean
                     loading = true
                     error = null
                     val request = AdvisorRequest(type, genre, platform, libraryOnly)
-                    val choice = chooseAdvisorTitle(api, store, request)
+                    val choice = chooseAdvisorTitle(context, api, store, request)
                     loading = false
                     if (choice != null) scope.launch { sheetState.hide() }.invokeOnCompletion { onOpen(choice, request) }
                     else error = "Nessun titolo trovato con queste preferenze."
@@ -5372,6 +5653,7 @@ private fun AdvisorSheet(api: TmdbApi, store: LibraryStore, libraryOnly: Boolean
 }
 
 private suspend fun chooseAdvisorTitle(
+    context: android.content.Context,
     api: TmdbApi,
     store: LibraryStore,
     request: AdvisorRequest,
@@ -5402,7 +5684,13 @@ private suspend fun chooseAdvisorTitle(
             }.getOrDefault(emptyList())
         }.filter { store.get(it) == null }
     }
-    return choices.filter { it.id != excludedId }.randomOrNull()
+    val candidates = choices.filter { it.id != excludedId }
+    // With the AI connected, it picks the best fit among a few random candidates; otherwise chance does.
+    if (AiAdvisor.configured(context) && candidates.size > 1) {
+        val few = candidates.shuffled().take(20)
+        withContext(Dispatchers.IO) { runCatching { AiAdvisor.pick(context, store, few) }.getOrNull() }?.let { return it }
+    }
+    return candidates.randomOrNull()
 }
 
 @Composable

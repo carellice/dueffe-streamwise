@@ -14,7 +14,7 @@ import { SubscriptionProvider } from './lib/subscriptions.tsx'
 import { emphasized, fastOutSlowIn, tween } from './components/motion.ts'
 import { ContainerTransform, ExpandingPage } from './components/Transform.tsx'
 import { AuroraBackground, FloatingNavBar, RemoteImage, Spinner, type Rect } from './components/ui.tsx'
-import { AiCardArt, FIND_TITLE, FIND_TITLE_SUBTITLE, type ArtSource, type OpenMedia } from './components/cards.tsx'
+import { AiCardArt, type ArtSource, type OpenMedia } from './components/cards.tsx'
 import { ToastHost } from './components/overlay.tsx'
 import { HScrollArrows } from './components/hscroll.tsx'
 import { HomeScreen, homeReselect } from './screens/Home.tsx'
@@ -23,7 +23,9 @@ import { TvGuideScreen } from './screens/Guide.tsx'
 import { LibraryScreen, SagaDetailScreen, type LibrarySection, type SagaCollection } from './screens/Library.tsx'
 import { DetailScreen } from './screens/Detail.tsx'
 import { SearchScreen } from './screens/Search.tsx'
-import { AiScreen, FindTitleScreen } from './screens/Ai.tsx'
+import { useAiHubStyle } from './screens/Ai.tsx'
+import { AiChatScreen } from './screens/AiChat.tsx'
+import { AiToolsScreen } from './screens/AiTools.tsx'
 import { SettingsScreen, pickBackup } from './screens/Settings.tsx'
 import { FilterScreen } from './screens/Filters.tsx'
 import { ActionSheet, AdvisorSheet, chooseAdvisorTitle, type AdvisorRequest } from './screens/Sheets.tsx'
@@ -109,7 +111,7 @@ function StreamWiseApp({ version }: { version: string }) {
   const [search, setSearch] = useState<Expanding | null>(null)
   const [settings, setSettings] = useState<Expanding | null>(null)
   const [aiOpen, setAiOpen] = useState<Expanding | null>(null)
-  const [findTitle, setFindTitle] = useState<Expanding | null>(null)
+  const hubStyle = useAiHubStyle()
   const [filters, setFilters] = useState<Expanding | null>(null)
   const [saga, setSaga] = useState<{ collection: SagaCollection; el: HTMLElement | null } | null>(null)
   const [person, setPerson] = useState<PersonSelection | null>(null)
@@ -129,7 +131,7 @@ function StreamWiseApp({ version }: { version: string }) {
   }
   const resetOverlays = () => {
     setAction(null); setSearch(null); setSettings(null); setFilters(null); setSaga(null); setPerson(null); setAdvisor(null)
-    setAdvisorRequest(null); setCatalogExpanded(false); setAiOpen(null); setFindTitle(null)
+    setAdvisorRequest(null); setCatalogExpanded(false); setAiOpen(null)
   }
 
   // Notifications and manifest shortcuts: /?open=media&id=..., /?open=guide&date=..., /?route=search
@@ -182,7 +184,7 @@ function StreamWiseApp({ version }: { version: string }) {
   const screens: Record<Tab, () => JSX.Element> = {
     HOME: () => (
       <HomeScreen onOpen={openFromCatalog} onAction={setAction} onSearch={(r) => setSearch({ origin: r })} onSettings={(r) => setSettings({ origin: r })}
-        onAdvisor={(fromLibrary) => setAdvisor(fromLibrary)} onAskAi={(r) => setAiOpen({ origin: r })} onFindTitle={(r) => setFindTitle({ origin: r })}
+        onAdvisor={(fromLibrary) => setAdvisor(fromLibrary)} onAskAi={(r) => setAiOpen({ origin: r })}
         onOpenLibrary={(s) => { setLibrarySection(s); switchTab('LIBRARY') }} onDiscover={() => switchTab('DISCOVER')} onOpenGuide={() => switchTab('GUIDE')}
         onOpenPerson={(p: Person, r) => setPerson({ person: p, source: r })} />
     ),
@@ -224,12 +226,7 @@ function StreamWiseApp({ version }: { version: string }) {
         {search && <ExpandingPage source={search.origin} onClosed={() => setSearch(null)}>{(close) => <SearchScreen onDismiss={close} onOpen={openFromCatalog} />}</ExpandingPage>}
         {aiOpen && (
           <ExpandingPage source={aiOpen.origin} onClosed={() => setAiOpen(null)} sourceCorner={26} sourceArt={<AiCardArt style={{ width: '100%', height: '100%' }} />}>
-            {(close) => <AiScreen onDismiss={close} onOpen={openFromCatalog} />}
-          </ExpandingPage>
-        )}
-        {findTitle && (
-          <ExpandingPage source={findTitle.origin} onClosed={() => setFindTitle(null)} sourceCorner={26} sourceArt={<AiCardArt title={FIND_TITLE} subtitle={FIND_TITLE_SUBTITLE} icon="search" style={{ width: '100%', height: '100%' }} />}>
-            {(close) => <FindTitleScreen onDismiss={close} onOpen={openFromCatalog} />}
+            {(close) => hubStyle === 'tabs' ? <AiToolsScreen onDismiss={close} onOpen={openFromCatalog} /> : <AiChatScreen onDismiss={close} onOpen={openFromCatalog} />}
           </ExpandingPage>
         )}
         {settings && (

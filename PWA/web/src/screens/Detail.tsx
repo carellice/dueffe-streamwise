@@ -19,7 +19,7 @@ import { ExpandingPage } from '../components/Transform.tsx'
 import { GlassIconButton, Icon, MetaPill, Press, RemoteImage, Reveal, Spinner, boundsOf, rating, type Rect } from '../components/ui.tsx'
 import { MediaRail, ReactionBadge, ReactionIcon, RailSkeleton, EmptyState, type OpenMedia } from '../components/cards.tsx'
 import { PosterGrid } from '../components/grid.tsx'
-import { AiSimilarSection } from './Ai.tsx'
+import { AiSimilarSection, AiVerdictSection } from './Ai.tsx'
 import { EpisodesScreen } from './Episodes.tsx'
 import { PersonCredits, type PersonSelection } from './Person.tsx'
 
@@ -607,7 +607,8 @@ export function DetailScreen({ initial, backEnabled, onClose, onOpen, onAction, 
         {saga.length > 0 && <MediaRail title="Della stessa saga" media={saga} onOpen={onOpen} onAction={onAction} spacious revealId={'saga:' + media.id} />}
         {related.length > 0 && <MediaRail title="Potrebbe piacerti" media={related} onOpen={onOpen} onAction={onAction} spacious revealId={'related:' + media.id}
           loadMore={relatedHasMore ? () => void loadMoreRelated() : null} loadingMore={relatedLoadingMore} />}
-        <Section><AiSimilarSection media={media} onOpen={onOpen} /></Section>
+        <Section><AiVerdictSection key={'verdict:' + media.id} media={media} /></Section>
+        <Section><AiSimilarSection key={'similar:' + media.id} media={media} onOpen={onOpen} /></Section>
         <div style={{ height: 44 }} />
       </div>
 

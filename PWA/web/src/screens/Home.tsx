@@ -7,7 +7,7 @@ import { byState, follows, people, useStore } from '../lib/store.ts'
 import { tmdb } from '../lib/tmdb.ts'
 import { GlassIconButton, Reveal, SectionHeader, type Rect } from '../components/ui.tsx'
 import {
-  AdvisorCards, AiCard, ContinueCard, EmptyLibrary, FIND_TITLE, FIND_TITLE_SUBTITLE, GuideTeaser, HolidayRail, MediaRail, RailSkeleton, SearchPill, currentHoliday, type OpenMedia,
+  AdvisorCards, AiCard, ContinueCard, EmptyLibrary, GuideTeaser, HolidayRail, MediaRail, RailSkeleton, SearchPill, currentHoliday, type OpenMedia,
 } from '../components/cards.tsx'
 import { continueWatchingOrder, type LibrarySection } from './Library.tsx'
 import { PeopleRail } from './Detail.tsx'
@@ -31,9 +31,9 @@ export function interleave(a: Media[], b: Media[]): Media[] {
 
 export const homeReselect = new EventTarget()
 
-export function HomeScreen({ onOpen, onAction, onSearch, onSettings, onAdvisor, onAskAi, onFindTitle, onOpenLibrary, onDiscover, onOpenGuide, onOpenPerson }: {
+export function HomeScreen({ onOpen, onAction, onSearch, onSettings, onAdvisor, onAskAi, onOpenLibrary, onDiscover, onOpenGuide, onOpenPerson }: {
   onOpen: OpenMedia; onAction: (m: Media) => void; onSearch: (r: Rect | null) => void; onSettings: (r: Rect | null) => void; onAdvisor: (fromLibrary: boolean) => void
-  onAskAi: (r: Rect | null) => void; onFindTitle: (r: Rect | null) => void; onOpenLibrary: (s: LibrarySection) => void; onDiscover: () => void; onOpenGuide: () => void
+  onAskAi: (r: Rect | null) => void; onOpenLibrary: (s: LibrarySection) => void; onDiscover: () => void; onOpenGuide: () => void
   onOpenPerson: (p: Person, r: Rect | null) => void
 }) {
   const { version } = useStore()
@@ -72,7 +72,6 @@ export function HomeScreen({ onOpen, onAction, onSearch, onSettings, onAdvisor, 
         </Reveal>
         <Reveal id="home-advisor" delay={90}><AdvisorCards hasLibrary={progress.length > 0 || saved.length > 0} onAdvisor={onAdvisor} /></Reveal>
         <AiCard delay={120} onOpen={onAskAi} />
-        <AiCard delay={150} onOpen={onFindTitle} title={FIND_TITLE} subtitle={FIND_TITLE_SUBTITLE} icon="search" />
         {holiday && holidayMedia.some((m) => !hidden.has(m.id)) && (
           <HolidayRail holiday={holiday} media={holidayMedia.filter((m) => !hidden.has(m.id))} onOpen={onOpen} onAction={onAction} onSeeAll={() => onDiscover()} onLoadMore={null} loadingMore={false} />
         )}

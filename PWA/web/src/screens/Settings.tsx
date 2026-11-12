@@ -10,7 +10,7 @@ import { todayRome } from '../../../shared/dates.ts'
 import { Dialog, DialogButton } from '../components/overlay.tsx'
 import { Icon, Press, SegmentedPills, Spinner, Switch } from '../components/ui.tsx'
 import { setSkin, useSkin, type SkinName } from '../lib/skin.ts'
-import { AiSetupCard, OutlinedField } from './Ai.tsx'
+import { AiSetupCard, OutlinedField, setAiHubStyle, useAiHubStyle } from './Ai.tsx'
 
 const SKINS: SkinName[] = ['modern', 'skeu', 'metro']
 
@@ -119,6 +119,7 @@ export function SettingsScreen({ onDismiss, onRestored, onReplayOnboarding, vers
   const selected = new Set(data?.prefs.genres ?? [])
   const hideShows = data?.prefs.hideShowCredits ?? true
   const skin = useSkin()
+  const hubStyle = useAiHubStyle()
   const [account, setAccount] = useState<'password' | 'delete' | null>(null)
   const [push, setPush] = useState<boolean | null>(null)
   const [update, setUpdate] = useState<'idle' | 'checking' | 'ready' | 'latest'>('idle')
@@ -185,6 +186,11 @@ export function SettingsScreen({ onDismiss, onRestored, onReplayOnboarding, vers
           <SegmentedPills options={['Moderno', 'Skeuomorfico', 'Modern UI']} selected={SKINS.indexOf(skin)} onSelect={(i) => setSkin(SKINS[i])} />
         </Card>
         <AiSetupCard />
+        <Card style={{ padding: 18 }}>
+          <div className="t-title-large" style={{ color: 'var(--ink)' }}>Assistente IA</div>
+          <div style={{ color: 'var(--muted)', fontSize: 13, lineHeight: '18px', margin: '4px 0 14px' }}>Come si apre l'assistente: una chat in cui chiedi e affini a parole, oppure schede separate, una per funzione.</div>
+          <SegmentedPills options={['Chat', 'Schede']} selected={hubStyle === 'tabs' ? 1 : 0} onSelect={(i) => setAiHubStyle(i === 1 ? 'tabs' : 'chat')} />
+        </Card>
         <Card>
           <div className="row" style={{ padding: 18, cursor: 'pointer' }} onClick={() => void setPrefs({ hideShowCredits: !hideShows })}>
             <div className="grow col" style={{ paddingRight: 12 }}>

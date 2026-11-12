@@ -278,10 +278,9 @@ export function AdvisorCards({ hasLibrary, onAdvisor }: { hasLibrary: boolean; o
 }
 
 export const FIND_TITLE = 'Ritrova un titolo'
-export const FIND_TITLE_SUBTITLE = 'Non ricordi il nome? Rispondi a qualche domanda e lo cerco io'
 
-/** Look of the "Chiedi all'IA" card; also drawn by the page transition that grows out of it. */
-export function AiCardArt({ title = "Chiedi all'IA", subtitle = 'Dimmi cosa ti va: ti consiglio titoli su misura dei tuoi gusti', icon = 'sparkles', style }: { title?: string; subtitle?: string; icon?: IconName; style?: CSSProperties }) {
+/** Look of the "Assistente IA" card; also drawn by the page transition that grows out of it. */
+export function AiCardArt({ title = 'Assistente IA', subtitle = 'Consigli su misura, la TV di stasera, serate in due e titoli dimenticati', icon = 'sparkles', style }: { title?: string; subtitle?: string; icon?: IconName; style?: CSSProperties }) {
   return (
     <div className="row" style={{
       borderRadius: 26, padding: 16, position: 'relative',

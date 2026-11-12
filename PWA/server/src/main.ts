@@ -7,8 +7,8 @@ import * as accounts from './accounts.ts'
 import { checkNowFor, pushDevices, runJobsForAll, runReleaseChecksForAll, subscribe, unsubscribe, vapidPublicKey } from './push.ts'
 import { tmdbGet, TmdbError } from './tmdb.ts'
 import { guideDay } from './guide.ts'
-import { AiError, identify, recommend, similar, verify, type RecommendInput, type SimilarInput } from './ai.ts'
-import { entryFromJson, personFollowFromJson, providerFromJson, releaseFollowFromJson, type Prefs, type TvReminder } from '../../shared/model.ts'
+import { AiError, duo, identify, pick, recommend, search, similar, surprise, tonight, verify, why } from './ai.ts'
+import { entryFromJson, mediaFromJson, personFollowFromJson, providerFromJson, releaseFollowFromJson, type Prefs, type TvReminder } from '../../shared/model.ts'
 import { isIsoDate, todayRome } from '../../shared/dates.ts'
 
 const PORT = Number(process.env.PORT ?? 8080)
@@ -338,18 +338,21 @@ route('DELETE', '/api/ai/config', (_req, res) => {
   data.setAi('', '')
   json(res, 200, { ok: true })
 })
-route('POST', '/api/ai/recommend', async (req, res) => {
-  const body = await readJson<Partial<RecommendInput>>(req)
-  await aiCall(res, () => recommend({ type: String(body.type ?? ''), request: String(body.request ?? ''), liked: strings(body.liked), disliked: strings(body.disliked), watching: strings(body.watching), exclude: strings(body.exclude), count: Number(body.count) || 8 }))
-})
-route('POST', '/api/ai/similar', async (req, res) => {
-  const body = await readJson<Partial<SimilarInput>>(req)
-  await aiCall(res, () => similar({ title: String(body.title ?? ''), year: String(body.year ?? ''), type: String(body.type ?? ''), genres: strings(body.genres), liked: strings(body.liked), exclude: strings(body.exclude), count: Number(body.count) || 8 }))
-})
-route('POST', '/api/ai/identify', async (req, res) => {
-  const body = await readJson<{ clues?: unknown[]; exclude?: unknown }>(req)
-  const clues = (Array.isArray(body.clues) ? body.clues : []).filter(Array.isArray).map((c) => [String((c as unknown[])[0] ?? ''), String((c as unknown[])[1] ?? '')] as [string, string])
-  await aiCall(res, () => identify(clues, strings(body.exclude)))
+const text = (v: unknown, max = 400) => String(v ?? '').slice(0, max)
+const aiRoute = (name: string, work: (body: Record<string, any>) => Promise<unknown>) =>
+  route('POST', '/api/ai/' + name, async (req, res) => { const body = await readJson<Record<string, any>>(req); await aiCall(res, () => work(body ?? {})) })
+
+aiRoute('recommend', (b) => recommend({ request: text(b.request), history: strings(b.history).slice(-6), type: text(b.type, 8), exclude: strings(b.exclude) }))
+aiRoute('search', (b) => search({ query: text(b.query), type: text(b.type, 8), exclude: strings(b.exclude) }))
+aiRoute('similar', (b) => similar({ media: mediaFromJson(b.media), exclude: strings(b.exclude) }))
+aiRoute('why', (b) => why({ media: mediaFromJson(b.media) }))
+aiRoute('tonight', () => tonight())
+aiRoute('duo', (b) => duo({ titles: strings(b.titles).slice(0, 6), request: text(b.request), type: text(b.type, 8), exclude: strings(b.exclude) }))
+aiRoute('surprise', (b) => surprise({ type: text(b.type, 8), exclude: strings(b.exclude) }))
+aiRoute('pick', (b) => pick({ candidates: (Array.isArray(b.candidates) ? b.candidates : []).slice(0, 30).map(mediaFromJson) }))
+aiRoute('identify', (b) => {
+  const clues = (Array.isArray(b.clues) ? b.clues : []).filter(Array.isArray).slice(0, 20).map((c: unknown[]) => [text(c[0], 160), text(c[1])] as [string, string])
+  return identify({ clues, exclude: strings(b.exclude) })
 })
 
 // --- backup: the same streamwise-backup.json as the Android app -------------------------------

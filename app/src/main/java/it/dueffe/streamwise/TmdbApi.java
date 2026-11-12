@@ -301,6 +301,14 @@ final class TmdbApi {
         if(out.isEmpty())out=mediaList(get("/"+media.mediaType+"/"+media.tmdbId+"/similar",q).optJSONArray("results"),media.mediaType,20);
         return out;
     }
+    /** /discover with any filters, for the AI's candidates (AiAdvisor.kt). */
+    List<Models.Media> discoverQuery(String type,Map<String,String> filters) throws Exception{
+        Map<String,String> q=new LinkedHashMap<>();q.put("include_adult","false");q.put("watch_region","IT");q.put("region","IT");q.putAll(filters);
+        return mediaList(get("/discover/"+type,q).optJSONArray("results"),type,20);
+    }
+    List<Models.Media> similar(Models.Media media) throws Exception{
+        return mediaList(get("/"+media.mediaType+"/"+media.tmdbId+"/similar",null).optJSONArray("results"),media.mediaType,20);
+    }
     List<Models.Media> searchTitles(String query,Integer year) throws Exception{
         List<Models.Media> out=new ArrayList<>();Map<String,String> q=new LinkedHashMap<>();q.put("query",query);q.put("include_adult","false");q.put("region","IT");
         for(String type:java.util.Arrays.asList("movie","tv")){for(Models.Media m:mediaList(get("/search/"+type,q).optJSONArray("results"),type,40))if(year==null||String.valueOf(year).equals(m.year))out.add(m);}
