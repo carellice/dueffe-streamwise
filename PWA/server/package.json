@@ -1,6 +1,6 @@
 {
   "name": "streamwise-server",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "private": true,
   "type": "module",
   "description": "Server di StreamWise PWA: dati in SQLite, account, lavori periodici e notifiche push.",
