@@ -338,6 +338,12 @@ route('DELETE', '/api/ai/config', (_req, res) => {
   data.setAi('', '')
   json(res, 200, { ok: true })
 })
+// The optional Tavily key for the web search behind "Ritrova un titolo"; an empty key removes it.
+route('POST', '/api/ai/tavily', async (req, res) => {
+  const { key } = await readJson<{ key?: string }>(req)
+  data.setTavily(String(key ?? '').trim().slice(0, 200))
+  json(res, 200, { ok: true })
+})
 const text = (v: unknown, max = 400) => String(v ?? '').slice(0, max)
 const aiRoute = (name: string, work: (body: Record<string, any>) => Promise<unknown>) =>
   route('POST', '/api/ai/' + name, async (req, res) => { const body = await readJson<Record<string, any>>(req); await aiCall(res, () => work(body ?? {})) })

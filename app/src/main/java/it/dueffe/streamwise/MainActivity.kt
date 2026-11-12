@@ -4959,6 +4959,7 @@ private fun ChangelogEntry(version: String, title: String, body: String) {
 }
 
 private const val CLOUDFLARE_SIGN_UP = "https://dash.cloudflare.com/sign-up"
+private const val TAVILY_SIGN_UP = "https://app.tavily.com"
 private const val CLOUDFLARE_WORKERS_AI = "https://dash.cloudflare.com/?to=/:account/ai/workers-ai"
 private const val CLOUDFLARE_API_TOKENS = "https://dash.cloudflare.com/profile/api-tokens"
 
@@ -4975,6 +4976,7 @@ private fun AiSetupCard(modifier: Modifier = Modifier, onConfiguredChange: (Bool
     var showGuide by remember { mutableStateOf(!configured) }
     var checking by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    var tavily by remember { mutableStateOf(AiAdvisor.tavilyKey(context)) }
     val steps = listOf(
         Triple("Crea un account gratuito su Cloudflare, oppure accedi se ce l'hai già.", "Apri Cloudflare", CLOUDFLARE_SIGN_UP),
         Triple("Apri Workers AI (menu AI › Workers AI) e tocca “Use REST API”.", "Apri Workers AI", CLOUDFLARE_WORKERS_AI),
@@ -5036,6 +5038,34 @@ private fun AiSetupCard(modifier: Modifier = Modifier, onConfiguredChange: (Bool
                 trailingIcon = { TextButton({ showToken = !showToken }) { Text(if (showToken) "Nascondi" else "Mostra", fontSize = 12.sp) } },
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
             )
+            if (configured) {
+                Text(
+                    "Facoltativo: con una chiave API gratuita di Tavily, “Ritrova un titolo” cerca anche sul web per essere più preciso.",
+                    color = Muted, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 14.dp)
+                )
+                Text(
+                    "Apri Tavily ›", color = AiViolet, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 4.dp).clip(CircleShape).clickable { runCatching { uriHandler.openUri(TAVILY_SIGN_UP) } }.padding(vertical = 4.dp)
+                )
+                val saved = AiAdvisor.tavilyKey(context)
+                OutlinedTextField(
+                    value = tavily,
+                    onValueChange = { tavily = it.trim(); message = null },
+                    label = { Text("Chiave API Tavily") },
+                    singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = androidx.compose.ui.text.input.KeyboardType.Password, imeAction = ImeAction.Done),
+                    trailingIcon = {
+                        if (tavily != saved || saved.isNotEmpty()) TextButton({
+                            val key = if (tavily != saved) tavily else ""
+                            AiAdvisor.saveTavilyKey(context, key)
+                            tavily = key
+                            message = (if (key.isEmpty()) "Ricerca web disattivata." else "Ricerca web attivata per “Ritrova un titolo”.") to true
+                        }) { Text(if (tavily != saved) "Salva" else "Rimuovi", fontSize = 12.sp) }
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                )
+            }
             message?.let { (text, ok) -> Text(text, color = if (ok) AiViolet else DislikeRed, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 10.dp)) }
             Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (configured) OutlinedButton(

@@ -5,7 +5,7 @@
 // subscriptions when possible) and the model only picks from that numbered list and explains why.
 // The only places where it names titles freely are the "seeds" of a request and "Ritrova un titolo",
 // and those are matched against TMDB before they reach the user.
-import { aiAccount, aiToken, currentUserId, libraryEntries, prefs, services } from './db.ts'
+import { aiAccount, aiToken, currentUserId, libraryEntries, prefs, services, tavilyKey } from './db.ts'
 import { serverTmdb } from './tmdb.ts'
 import { loadGuide } from './guide.ts'
 import { recognize, searchTitle, type Programme } from '../../shared/guide.ts'
@@ -507,13 +507,38 @@ export async function pick(input: { candidates: Media[] }): Promise<{ id: string
   return picks.length > 0 ? { id: picks[0][0].id, reason: picks[0][1] } : { id: '', reason: '' }
 }
 
+/**
+ * A silent web search on the clues with the user's Tavily key, so "Ritrova un titolo" relies on real pages
+ * instead of the model's memory alone. Without a key, or if Tavily fails, it is just empty.
+ */
+export async function webClues(clues: [string, string][]): Promise<string> {
+  const key = tavilyKey()
+  if (key === '') return ''
+  const query = clean(`film o serie TV: ${clues.map(([, a]) => a).join(' ')}`, 380)
+  try {
+    const response = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+      body: JSON.stringify({ query, search_depth: 'basic', max_results: 6 }),
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!response.ok) return ''
+    const body: any = await response.json()
+    return list(body?.results).map((r) => `- ${clean(r?.title, 120)}: ${clean(r?.content, 350)}`).join('\n')
+  } catch {
+    return ''
+  }
+}
+
 /** "Ritrova un titolo": guesses a title from vague clues, checked on TMDB, with a follow-up question. */
 export async function identify(input: { clues: [string, string][]; exclude: string[] }): Promise<AiAnswer> {
   configured()
+  const web = await webClues(input.clues)
   const prompt = [
     'Una persona cerca un film o una serie TV di cui non ricorda il nome. Ecco cosa ricorda:',
     input.clues.map(([q, a]) => `- ${clean(q, 160)}: ${clean(a, 400)}`).join('\n'),
     input.exclude.length > 0 ? `Ha già escluso questi titoli, non riproporli: ${input.exclude.slice(-40).join('; ')}.` : '',
+    web !== '' ? `Risultati di una ricerca web sugli indizi (usali per essere preciso, ma solo se corrispondono davvero agli indizi):\n${web}` : '',
     '',
     'Ragiona sugli indizi (i ricordi possono essere imprecisi) e individua da 1 a 6 titoli reali, dal più probabile.',
     'Per ognuno: titolo originale, anno, tipo (movie o tv) e "reason", una frase in italiano (massimo 150 caratteri) su quali indizi corrispondono.',

@@ -181,6 +181,7 @@ export function AiTextArea({ value, onChange, placeholder, rows = 3, onSubmit, m
 export const ErrorText = ({ text }: { text: string | null }) => (text ? <div style={{ color: 'var(--dislike)', fontSize: 14, textAlign: 'center', lineHeight: '20px' }}>{text}</div> : null)
 
 const CLOUDFLARE_SIGN_UP = 'https://dash.cloudflare.com/sign-up'
+const TAVILY_SIGN_UP = 'https://app.tavily.com'
 const CLOUDFLARE_WORKERS_AI = 'https://dash.cloudflare.com/?to=/:account/ai/workers-ai'
 const CLOUDFLARE_API_TOKENS = 'https://dash.cloudflare.com/profile/api-tokens'
 
@@ -251,6 +252,18 @@ export function AiSetupCard({ onConfiguredChange, style }: { onConfiguredChange?
     }
   }
   const canSave = accountId.trim() !== '' && token.trim() !== '' && !checking
+  const webSearch = data?.ai.webSearch === true
+  const [tavily, setTavily] = useState('')
+  const saveTavily = async (key: string) => {
+    try {
+      await api('/api/ai/tavily', { method: 'POST', json: { key } })
+      await refresh(true)
+      setTavily('')
+      setMessage([key === '' ? 'Ricerca web disattivata.' : 'Ricerca web attivata per “Ritrova un titolo”.', true])
+    } catch (e) {
+      setMessage([aiError(e), false])
+    }
+  }
   return (
     <div style={{ background: 'var(--surface)', borderRadius: 24, boxShadow: `inset 0 0 0 1px ${configured ? 'rgba(165,123,255,.5)' : 'var(--outline)'}`, padding: 18, ...style }}>
       <div className="row">
@@ -285,6 +298,17 @@ export function AiSetupCard({ onConfiguredChange, style }: { onConfiguredChange?
       <OutlinedField label={configured && token === '' ? 'Token API Workers AI (salvato sul server)' : 'Token API Workers AI'} value={token} type={showToken ? 'text' : 'password'} autoComplete="new-password"
         onChange={(v) => { setToken(v.trim()); setMessage(null) }} onEnter={() => { if (canSave) void verify() }} style={{ marginTop: 8 }}
         trailing={<TextButton onClick={() => setShowToken(!showToken)} style={{ fontSize: 12 }}>{showToken ? 'Nascondi' : 'Mostra'}</TextButton>} />
+      {configured && (
+        <>
+          <div style={{ color: 'var(--muted)', fontSize: 13, lineHeight: '18px', marginTop: 14 }}>
+            Facoltativo: con una chiave API gratuita di <a href={TAVILY_SIGN_UP} target="_blank" rel="noopener" style={{ color: 'var(--violet)', fontWeight: 700, textDecoration: 'none' }}>Tavily</a>, “Ritrova un titolo” cerca anche sul web per essere più preciso.
+          </div>
+          <OutlinedField label={webSearch && tavily === '' ? 'Chiave API Tavily (salvata sul server)' : 'Chiave API Tavily'} value={tavily} type="password" autoComplete="new-password"
+            onChange={(v) => { setTavily(v.trim()); setMessage(null) }} onEnter={() => { if (tavily !== '') void saveTavily(tavily) }} style={{ marginTop: 8 }}
+            trailing={tavily !== '' ? <TextButton onClick={() => void saveTavily(tavily)} style={{ fontSize: 12 }}>Salva</TextButton>
+              : webSearch ? <TextButton onClick={() => void saveTavily('')} style={{ fontSize: 12 }}>Rimuovi</TextButton> : undefined} />
+        </>
+      )}
       {message && <div style={{ color: message[1] ? 'var(--violet)' : 'var(--dislike)', fontSize: 13, lineHeight: '18px', marginTop: 10 }}>{message[0]}</div>}
       <div className="row" style={{ marginTop: 14, gap: 10 }}>
         {configured && (

@@ -48,6 +48,7 @@ internal object AiAdvisor {
     private const val ACCOUNT_ID = "account-id"
     private const val API_TOKEN = "api-token"
     private const val HUB = "hub"
+    private const val TAVILY_KEY = "tavily-key"
     private const val NOT_CONFIGURED = "Configura l'IA nelle Impostazioni con il tuo account Cloudflare."
     private const val SYSTEM = "Sei il consulente di cinema e serie TV di StreamWise: competente, diretto, mai banale. Scrivi in italiano naturale. Rispondi sempre e solo con un oggetto JSON valido, senza testo prima o dopo."
     private const val NO_PLOT = "Trama non disponibile."
@@ -66,6 +67,10 @@ internal object AiAdvisor {
     fun clear(context: Context) {
         prefs(context).edit().remove(ACCOUNT_ID).remove(API_TOKEN).apply()
     }
+
+    /** The optional Tavily key for the web search behind "Ritrova un titolo"; blank removes it. */
+    fun tavilyKey(context: Context): String = prefs(context).getString(TAVILY_KEY, "").orEmpty()
+    fun saveTavilyKey(context: Context, key: String) { prefs(context).edit().putString(TAVILY_KEY, key.trim()).apply() }
 
     /** Which hub "Assistente IA" opens: "chat" or "tabs". */
     fun hubStyle(context: Context): String = if (prefs(context).getString(HUB, "chat") == "tabs") "tabs" else "chat"
@@ -505,12 +510,41 @@ internal object AiAdvisor {
     fun pick(context: Context, store: LibraryStore, candidates: List<Models.Media>): Models.Media? =
         choose(context, store, candidates.take(30), "Deve scegliere cosa guardare adesso: scegline uno solo, quello che le piacerà di più.", 1, 0.7).second.firstOrNull()?.first
 
+    /**
+     * A silent web search on the clues with the user's Tavily key, so "Ritrova un titolo" relies on real pages
+     * instead of the model's memory alone. Without a key, or if Tavily fails, it is just empty.
+     */
+    private fun webClues(context: Context, clues: List<Pair<String, String>>): String {
+        val key = tavilyKey(context).ifBlank { return "" }
+        val query = clean("film o serie TV: ${clues.joinToString(" ") { it.second }}", 380)
+        return runCatching {
+            val connection = URL("https://api.tavily.com/search").openConnection() as HttpURLConnection
+            try {
+                connection.requestMethod = "POST"
+                connection.connectTimeout = 10_000
+                connection.readTimeout = 15_000
+                connection.doOutput = true
+                connection.setRequestProperty("content-type", "application/json")
+                connection.setRequestProperty("authorization", "Bearer $key")
+                connection.outputStream.use { it.write(JSONObject().put("query", query).put("search_depth", "basic").put("max_results", 6).toString().toByteArray(Charsets.UTF_8)) }
+                if (connection.responseCode !in 200..299) return ""
+                val results = JSONObject(connection.inputStream.bufferedReader().use { it.readText() }).optJSONArray("results") ?: JSONArray()
+                (0 until results.length()).mapNotNull { results.optJSONObject(it) }
+                    .joinToString("\n") { "- ${clean(it.opt("title"), 120)}: ${clean(it.opt("content"), 350)}" }
+            } finally {
+                connection.disconnect()
+            }
+        }.getOrDefault("")
+    }
+
     /** "Ritrova un titolo": guesses a title from vague clues, checked on TMDB, with a follow-up question. */
     fun identify(context: Context, api: TmdbApi, clues: List<Pair<String, String>>, exclude: List<String>): AiAnswer {
+        val web = webClues(context, clues)
         val prompt = listOf(
             "Una persona cerca un film o una serie TV di cui non ricorda il nome. Ecco cosa ricorda:",
             clues.joinToString("\n") { (q, a) -> "- ${clean(q, 160)}: ${clean(a, 400)}" },
             if (exclude.isNotEmpty()) "Ha già escluso questi titoli, non riproporli: ${exclude.takeLast(40).joinToString("; ")}." else "",
+            if (web.isNotEmpty()) "Risultati di una ricerca web sugli indizi (usali per essere preciso, ma solo se corrispondono davvero agli indizi):\n$web" else "",
             "",
             "Ragiona sugli indizi (i ricordi possono essere imprecisi) e individua da 1 a 6 titoli reali, dal più probabile.",
             "Per ognuno: titolo originale, anno, tipo (movie o tv) e \"reason\", una frase in italiano (massimo 150 caratteri) su quali indizi corrispondono.",

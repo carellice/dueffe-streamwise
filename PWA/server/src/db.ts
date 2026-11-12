@@ -165,6 +165,7 @@ export function availability(): Record<string, AvailabilityRecord> {
 
 export const aiAccount = () => getMeta('ai_account') ?? ''
 export const aiToken = () => getMeta('ai_token') ?? ''
+export const tavilyKey = () => getMeta('tavily_key') ?? ''
 
 /** Everything the app shows, sent to the client in one go (GET /api/state). */
 export function state(): Omit<AppState, 'revision'> {
@@ -177,7 +178,7 @@ export function state(): Omit<AppState, 'revision'> {
     services: services(),
     availability: availability(),
     // The token itself never leaves the server.
-    ai: { configured: aiAccount() !== '' && aiToken() !== '', accountId: aiAccount() },
+    ai: { configured: aiAccount() !== '' && aiToken() !== '', accountId: aiAccount(), webSearch: tavilyKey() !== '' },
     lastCheck: Number(getMeta('last_check') ?? '0'),
     notices: notices(),
   }
@@ -277,6 +278,8 @@ export function saveAvailability(id: string, record: AvailabilityRecord, seen: P
 export function setAi(accountId: string, token: string) {
   transaction(() => { setMeta('ai_account', accountId || null); setMeta('ai_token', token || null) })
 }
+
+export const setTavily = (key: string) => setMeta('tavily_key', key || null)
 
 // --- backup (LibraryStore.exportJson / importJson) ----------------------------------------------
 

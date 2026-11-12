@@ -281,7 +281,7 @@ export type AppState = {
   prefs: Prefs
   services: Provider[]
   availability: Record<string, AvailabilityRecord>
-  ai: { configured: boolean; accountId: string }
+  ai: { configured: boolean; accountId: string; webSearch?: boolean }
   lastCheck: number
   notices?: { id: string; title: string; text: string; mediaId: string; subtext: string; poster: string; at: number }[]
 }
