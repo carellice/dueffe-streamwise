@@ -28,8 +28,6 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -70,35 +68,55 @@ import kotlin.math.roundToInt
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** Which look the app wears: the modern slate one or the skeuomorphic leather-and-brass one. Saved per device. */
+/** Which look the app wears: modern slate, skeuomorphic leather-and-brass, or Modern UI (Windows Phone). Saved per device. */
 internal object Skin {
-    var skeu by mutableStateOf(false)
+    const val MODERN = "modern"
+    const val SKEU = "skeu"
+    const val METRO = "metro"
+    var current by mutableStateOf(MODERN)
         private set
+    val skeu get() = current == SKEU
+    val metro get() = current == METRO
     private fun prefs(context: android.content.Context) = context.getSharedPreferences("streamwise-ui", android.content.Context.MODE_PRIVATE)
-    fun load(context: android.content.Context) { skeu = prefs(context).getBoolean("skeuomorphic", false) }
-    fun set(context: android.content.Context, on: Boolean) { skeu = on; prefs(context).edit().putBoolean("skeuomorphic", on).apply() }
+    // "skeuomorphic" is the boolean saved before Modern UI existed.
+    fun load(context: android.content.Context) {
+        val p = prefs(context)
+        current = p.getString("skin", null) ?: if (p.getBoolean("skeuomorphic", false)) SKEU else MODERN
+    }
+    fun set(context: android.content.Context, skin: String) { current = skin; prefs(context).edit().putString("skin", skin).apply() }
 }
 
-/** Design tokens: slate surfaces with a deep cinema-red accent gradient, or warm leather with brass in the skeuomorphic skin. */
+/** Modern UI accent: Windows Phone's red. */
+private val MetroAccent = Color(0xFFE51400)
+
+/**
+ * Design tokens: slate surfaces with a deep cinema-red accent gradient, warm leather with brass in the
+ * skeuomorphic skin, or pure black with flat grey tiles and a solid red accent in Modern UI.
+ */
 internal object Sw {
-    val Background get() = if (Skin.skeu) Color(0xFF1B120E) else Color(0xFF0A0B10)
-    val Surface get() = if (Skin.skeu) Color(0xFF2E221C) else Color(0xFF14161E)
-    val Raised get() = if (Skin.skeu) Color(0xFF3D2E25) else Color(0xFF1D2029)
-    val Outline get() = if (Skin.skeu) Color(0xFF5A4636) else Color(0xFF2C303C)
-    val Ink get() = if (Skin.skeu) Color(0xFFF6EBD6) else Color(0xFFF7F5F3)
-    val Muted get() = if (Skin.skeu) Color(0xFFC2AE92) else Color(0xFFA4A8B5)
-    val Red = Color(0xFFD7142B)
-    val Coral = Color(0xFFFF4B45)
-    val Accent get() = if (Skin.skeu) Color(0xFFE6BE6E) else Color(0xFFFF5964)
+    val Background get() = when { Skin.skeu -> Color(0xFF1B120E); Skin.metro -> Color.Black; else -> Color(0xFF0A0B10) }
+    val Surface get() = when { Skin.skeu -> Color(0xFF2E221C); Skin.metro -> Color(0xFF1F1F1F); else -> Color(0xFF14161E) }
+    val Raised get() = when { Skin.skeu -> Color(0xFF3D2E25); Skin.metro -> Color(0xFF2E2E2E); else -> Color(0xFF1D2029) }
+    val Outline get() = when { Skin.skeu -> Color(0xFF5A4636); Skin.metro -> Color(0xFF3D3D3D); else -> Color(0xFF2C303C) }
+    val Ink get() = when { Skin.skeu -> Color(0xFFF6EBD6); Skin.metro -> Color.White; else -> Color(0xFFF7F5F3) }
+    val Muted get() = when { Skin.skeu -> Color(0xFFC2AE92); Skin.metro -> Color(0xFF9A9A9A); else -> Color(0xFFA4A8B5) }
+    val Red get() = if (Skin.metro) MetroAccent else Color(0xFFD7142B)
+    val Coral get() = if (Skin.metro) MetroAccent else Color(0xFFFF4B45)
+    val Accent get() = when { Skin.skeu -> Color(0xFFE6BE6E); Skin.metro -> Color(0xFFFF3B2F); else -> Color(0xFFFF5964) }
     val Amber = Color(0xFFFFC24D)
     val Blue = Color(0xFF4C8DFF)
-    val Brand get() = if (Skin.skeu) Brush.verticalGradient(listOf(Color(0xFFE6474E), Color(0xFFB8141F), Color(0xFF8A0B14))) else Brush.linearGradient(listOf(Red, Coral))
+    val Brand: Brush get() = when {
+        Skin.skeu -> Brush.verticalGradient(listOf(Color(0xFFE6474E), Color(0xFFB8141F), Color(0xFF8A0B14)))
+        Skin.metro -> androidx.compose.ui.graphics.SolidColor(MetroAccent)
+        else -> Brush.linearGradient(listOf(Red, Coral))
+    }
     val Emphasized = CubicBezierEasing(.2f, 0f, 0f, 1f)
     val Decelerate = CubicBezierEasing(.05f, .7f, .1f, 1f)
 }
 
 internal fun Modifier.brandGlow(shape: Shape, elevation: Dp = 10.dp): Modifier = composed {
-    if (Skin.skeu) glossyCandy(shape, elevation)
+    if (Skin.metro) background(Sw.Brand, shape)
+    else if (Skin.skeu) glossyCandy(shape, elevation)
     else shadow(elevation, shape, ambientColor = Sw.Red.copy(alpha = .6f), spotColor = Sw.Coral.copy(alpha = .7f))
         .background(Sw.Brand, shape)
         .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .32f), Color.White.copy(alpha = .04f))), shape)
@@ -106,7 +124,8 @@ internal fun Modifier.brandGlow(shape: Shape, elevation: Dp = 10.dp): Modifier =
 
 /** Translucent slate surface with a hairline highlight on the top edge; an embossed leather button in the skeuomorphic skin. */
 internal fun Modifier.glass(shape: Shape, alpha: Float = .78f): Modifier = composed {
-    if (Skin.skeu) skeuRaised(shape, stitched = false, elevation = 4.dp)
+    if (Skin.metro) clip(shape).background(Sw.Surface)
+    else if (Skin.skeu) skeuRaised(shape, stitched = false, elevation = 4.dp)
     else clip(shape)
         .background(Sw.Surface.copy(alpha = alpha))
         .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .16f), Color.White.copy(alpha = .03f))), shape)
@@ -234,9 +253,16 @@ internal fun Modifier.reveal(delayMillis: Int = 0, distance: Dp = 36.dp): Modifi
             shown = true
         }
     }
+    val metro = Skin.metro
     return graphicsLayer {
         alpha = progress.value
-        translationY = (1f - progress.value) * distance.toPx()
+        // Modern UI: content swings in like a turnstile, hinged on the left edge.
+        if (metro) {
+            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, .5f)
+            rotationY = (1f - progress.value) * 70f
+            translationX = (1f - progress.value) * distance.toPx()
+            cameraDistance = 12f * density
+        } else translationY = (1f - progress.value) * distance.toPx()
     }
 }
 
@@ -244,6 +270,7 @@ internal fun Modifier.reveal(delayMillis: Int = 0, distance: Dp = 36.dp): Modifi
 @Composable
 internal fun AuroraBackground(modifier: Modifier = Modifier) {
     if (Skin.skeu) { LeatherBackdrop(modifier); return }
+    if (Skin.metro) { Box(modifier.fillMaxSize().background(Color.Black)); return }
     val transition = rememberInfiniteTransition(label = "aurora")
     val phase by transition.animateFloat(0f, 1f, infiniteRepeatable(tween(16000, easing = LinearEasing), RepeatMode.Reverse), label = "aurora-phase")
     Canvas(modifier.fillMaxSize().graphicsLayer()) {
@@ -305,7 +332,7 @@ internal fun GlassIconButton(
 internal fun SegmentedPills(options: List<String>, selected: Int, modifier: Modifier = Modifier, height: Dp = 44.dp, onSelect: (Int) -> Unit) {
     val haptics = LocalHapticFeedback.current
     BoxWithConstraints(
-        modifier.height(height).then(if (Skin.skeu) Modifier.skeuGroove(CircleShape) else Modifier.glass(CircleShape, .85f)).padding(4.dp)
+        modifier.height(height).then(if (Skin.skeu) Modifier.skeuGroove(CircleShape) else if (Skin.metro) Modifier.background(Color.Black) else Modifier.glass(CircleShape, .85f)).padding(4.dp)
     ) {
         val itemWidth = maxWidth / options.size
         val offset by animateDpAsState(itemWidth * selected, spring(dampingRatio = .72f, stiffness = Spring.StiffnessMediumLow), label = "segment-thumb")
@@ -323,7 +350,7 @@ internal fun SegmentedPills(options: List<String>, selected: Int, modifier: Modi
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(label, color = color, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
+                    Text(metroCase(label), color = color, fontWeight = if (Skin.metro) FontWeight.Normal else FontWeight.Bold, fontSize = if (options.size > 2) 13.sp else 14.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 4.dp))
                 }
             }
         }
@@ -343,8 +370,8 @@ internal fun ChipTabs(options: List<Pair<String, Int?>>, selected: Int, modifier
                 Modifier.height(40.dp)
                     .pressScale(interaction, .92f)
                     .then(if (Skin.skeu) Modifier.skeuRaised(CircleShape, stitched = false, elevation = 3.dp) else Modifier.clip(CircleShape).background(Sw.Raised))
-                    .drawBehind { drawRoundRect(Sw.Brand, cornerRadius = CornerRadius(size.height / 2), alpha = fill) }
-                    .border(1.dp, Color.White.copy(alpha = .08f * (1f - fill)), CircleShape)
+                    .drawBehind { drawRoundRect(Sw.Brand, cornerRadius = CornerRadius(if (Skin.metro) 0f else size.height / 2), alpha = fill) }
+                    .border(if (Skin.metro) 0.dp else 1.dp, Color.White.copy(alpha = .08f * (1f - fill)), CircleShape)
                     .clickable(interaction, indication = null) {
                         if (!active) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         onSelect(index)
@@ -352,7 +379,7 @@ internal fun ChipTabs(options: List<Pair<String, Int?>>, selected: Int, modifier
                     .padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(label, color = if (active) Color.White else Sw.Ink.copy(alpha = .8f), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(metroCase(label), color = if (active) Color.White else Sw.Ink.copy(alpha = .8f), fontWeight = if (Skin.metro) FontWeight.Normal else FontWeight.Bold, fontSize = 14.sp)
                 if (count != null) {
                     Box(
                         Modifier.padding(start = 8.dp).height(22.dp).widthIn(min = 22.dp).clip(CircleShape)
@@ -382,6 +409,7 @@ internal data class NavItem(val label: String, val icon: Int)
 /** Floating glass navigation pill: the active destination widens and reveals its label. */
 @Composable
 internal fun FloatingNavBar(items: List<NavItem>, selected: Int, modifier: Modifier = Modifier, onSelect: (Int) -> Unit) {
+    if (Skin.metro) { MetroAppBar(items, selected, modifier, onSelect); return }
     val haptics = LocalHapticFeedback.current
     Row(
         modifier
@@ -437,13 +465,44 @@ internal fun FloatingNavBar(items: List<NavItem>, selected: Int, modifier: Modif
     }
 }
 
+/** Windows Phone application bar: a flat full-width strip of round outlined icons with lowercase labels. */
+@Composable
+private fun MetroAppBar(items: List<NavItem>, selected: Int, modifier: Modifier, onSelect: (Int) -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    val ring = androidx.compose.foundation.shape.CircleShape
+    Row(
+        modifier.fillMaxWidth().background(Color(0xFF1F1F1F)).navigationBarsPadding().padding(top = 8.dp, bottom = 6.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly
+    ) {
+        items.forEachIndexed { index, item ->
+            val active = index == selected
+            val fill by animateColorAsState(if (active) Sw.Red else Color.Transparent, tween(200), label = "metro-tab")
+            val interaction = remember { MutableInteractionSource() }
+            Column(
+                Modifier.width(72.dp).pressScale(interaction, .9f).clickable(interaction, indication = null) {
+                    if (!active) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onSelect(index)
+                },
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    Modifier.size(42.dp).clip(ring).background(fill).border(2.dp, if (active) Sw.Red else Color.White, ring),
+                    contentAlignment = Alignment.Center
+                ) { Icon(painterResource(item.icon), item.label, tint = Color.White, modifier = Modifier.size(21.dp)) }
+                Text(item.label.lowercase(), color = if (active) Color.White else Sw.Muted, fontSize = 11.sp, maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 3.dp))
+            }
+        }
+    }
+}
+
 @Composable
 internal fun SectionHeader(title: String, modifier: Modifier = Modifier, eyebrow: String? = null, action: String? = null, onAction: ((Rect?) -> Unit)? = null) {
     var bounds by remember { mutableStateOf<Rect?>(null) }
     Row(modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp), verticalAlignment = Alignment.Bottom) {
         Column(Modifier.weight(1f)) {
             if (eyebrow != null) Text(eyebrow.uppercase(), color = Sw.Accent, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.6.sp)
-            Text(title, color = Sw.Ink, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-.3).sp)
+            if (Skin.metro) Text(title.lowercase(), color = Sw.Ink, fontSize = 30.sp, fontWeight = FontWeight.Light, letterSpacing = (-.5).sp)
+            else Text(title, color = Sw.Ink, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-.3).sp)
         }
         if (onAction != null) {
             val interaction = remember { MutableInteractionSource() }
@@ -453,13 +512,13 @@ internal fun SectionHeader(title: String, modifier: Modifier = Modifier, eyebrow
                     .pressScale(interaction, .9f)
                     .height(34.dp)
                     .clip(CircleShape)
-                    .background(Sw.Accent.copy(alpha = .12f))
-                    .border(1.dp, Sw.Accent.copy(alpha = .35f), CircleShape)
+                    .background(Sw.Accent.copy(alpha = if (Skin.metro) 0f else .12f))
+                    .border(if (Skin.metro) 0.dp else 1.dp, Sw.Accent.copy(alpha = .35f), CircleShape)
                     .clickable(interaction, indication = null) { onAction(bounds) }
                     .padding(start = 13.dp, end = 7.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(action ?: "Vedi tutto", color = Sw.Accent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text(metroCase(action ?: "Vedi tutto"), color = Sw.Accent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Sw.Accent, modifier = Modifier.padding(start = 2.dp).size(17.dp))
             }
         }
@@ -540,7 +599,7 @@ internal fun ContainerTransform(
         Box(Modifier.fillMaxSize().graphicsLayer {
             val p = progress()
             val rect = rectFor(size.width, size.height, p)
-            val radius = (sourceCornerPx() ?: defaultCorner) * (1f - p)
+            val radius = if (Skin.metro) 0f else (sourceCornerPx() ?: defaultCorner) * (1f - p)
             shape = GenericShape { _, _ -> addRoundRect(RoundRect(rect, CornerRadius(radius))) }
             clip = true
             if (visibleSource() == null) alpha = p.coerceIn(0f, 1f)

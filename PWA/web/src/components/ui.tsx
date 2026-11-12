@@ -3,7 +3,7 @@ import { AnimatePresence, animate, motion, useMotionValue, useTransform, type HT
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { icons, type IconName } from '../lib/icons.gen.ts'
 import { decelerate, haptic, spring, tween, Stiffness } from './motion.ts'
-import { useSkeu } from '../lib/skin.ts'
+import { useSkin } from '../lib/skin.ts'
 
 export type Rect = { left: number; top: number; width: number; height: number }
 
@@ -108,10 +108,10 @@ export function SegmentedPills({ options, selected, height = 44, onSelect, style
         />
         <div className="row" style={{ position: 'relative', height: '100%' }}>
           {options.map((label, index) => (
-            <div key={label} className="grow center" style={{ height: '100%', cursor: 'pointer' }}
+            <div key={label} className="grow center" style={{ height: '100%', cursor: 'pointer', minWidth: 0 }}
               onClick={() => { if (index !== selected) { haptic(); onSelect(index) } }}>
               <motion.span initial={false} animate={{ color: index === selected ? '#FFFFFF' : '#A4A8B5' }} transition={spring()}
-                style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap' }}>{label}</motion.span>
+                style={{ fontWeight: 700, fontSize: options.length > 2 ? 13 : 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '0 4px' }}>{label}</motion.span>
             </div>
           ))}
         </div>
@@ -152,7 +152,9 @@ export type NavItem = { label: string; icon: IconName }
 
 /** Floating glass navigation pill: the active destination widens and reveals its label. */
 export function FloatingNavBar({ items, selected, onSelect }: { items: NavItem[]; selected: number; onSelect: (i: number) => void }) {
-  const activeInk = useSkeu() ? 'var(--accent)' : '#fff'
+  const skin = useSkin()
+  const activeInk = skin === 'skeu' ? 'var(--accent)' : '#fff'
+  if (skin === 'metro') return <MetroAppBar items={items} selected={selected} onSelect={onSelect} />
   return (
     <div className="nav-pad dock" style={{ padding: '10px 18px', paddingBottom: 'calc(10px + var(--safe-bottom))' }}>
       <div className="glass row" style={{ ['--glass-alpha' as string]: 0.94, borderRadius: 33, padding: 6, gap: 4, boxShadow: '0 14px 28px rgba(0,0,0,.55)', overflow: 'visible' }}>
@@ -189,12 +191,31 @@ export function FloatingNavBar({ items, selected, onSelect }: { items: NavItem[]
   )
 }
 
+/** Windows Phone application bar: a flat full-width strip of round outlined icons with lowercase labels. */
+function MetroAppBar({ items, selected, onSelect }: { items: NavItem[]; selected: number; onSelect: (i: number) => void }) {
+  return (
+    <div className="nav-pad dock row" style={{ background: '#1F1F1F', justifyContent: 'space-evenly', padding: '8px 0 6px', paddingBottom: 'calc(6px + var(--safe-bottom))' }}>
+      {items.map((item, index) => {
+        const active = index === selected
+        return (
+          <Press key={item.label} pressed={0.9} onClick={() => { if (!active) haptic(); onSelect(index) }} className="col" style={{ width: 72, alignItems: 'center' }}>
+            <div className="metro-ring center" style={{ width: 42, height: 42, borderRadius: '50%', border: `2px solid ${active ? 'var(--red)' : '#fff'}`, background: active ? 'var(--red)' : 'transparent', transition: 'background 200ms, border-color 200ms' }}>
+              <Icon name={item.icon} size={21} color="#fff" />
+            </div>
+            <span style={{ color: active ? '#fff' : 'var(--muted)', fontSize: 11, lineHeight: '14px', marginTop: 3, whiteSpace: 'nowrap', letterSpacing: 0 }}>{item.label.toLowerCase()}</span>
+          </Press>
+        )
+      })}
+    </div>
+  )
+}
+
 export function SectionHeader({ title, eyebrow, action, onAction, style }: { title: string; eyebrow?: string | null; action?: string; onAction?: ((rect: Rect | null) => void) | null; style?: CSSProperties }) {
   return (
     <div className="row" style={{ alignItems: 'flex-end', padding: '0 12px 0 20px', ...style }}>
       <div className="grow col">
         {eyebrow && <span style={{ color: 'var(--accent)', fontSize: 11, fontWeight: 900, letterSpacing: 1.6 }}>{eyebrow.toUpperCase()}</span>}
-        <span style={{ color: 'var(--ink)', fontSize: 21, fontWeight: 800, letterSpacing: -0.3, lineHeight: '28px' }}>{title}</span>
+        <span className="section-title" style={{ color: 'var(--ink)', fontSize: 21, fontWeight: 800, letterSpacing: -0.3, lineHeight: '28px' }}>{title}</span>
       </div>
       {onAction && (
         <Press pressed={0.9} onClick={(el) => onAction(boundsOf(el))} style={{ margin: '0 8px 2px 8px' }}>
@@ -242,7 +263,7 @@ export function PulsingDot({ color, size = 8, style }: { color: string; size?: n
 
 /** Slowly drifting ember glows behind the app content (16 s, back and forth). */
 export function AuroraBackground() {
-  return useSkeu() ? <div className="fill" style={{ background: 'var(--page)' }} /> : <Aurora />
+  return useSkin() !== 'modern' ? <div className="fill" style={{ background: 'var(--page)' }} /> : <Aurora />
 }
 
 function Aurora() {

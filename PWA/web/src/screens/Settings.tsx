@@ -9,8 +9,10 @@ import { disablePush, enablePush, notificationsAllowed, pushSupported } from '..
 import { todayRome } from '../../../shared/dates.ts'
 import { Dialog, DialogButton } from '../components/overlay.tsx'
 import { Icon, Press, SegmentedPills, Spinner, Switch } from '../components/ui.tsx'
-import { setSkeu, useSkeu } from '../lib/skin.ts'
+import { setSkin, useSkin, type SkinName } from '../lib/skin.ts'
 import { AiSetupCard, OutlinedField } from './Ai.tsx'
+
+const SKINS: SkinName[] = ['modern', 'skeu', 'metro']
 
 /** Downloads the native-format backup as streamwise-backup-YYYY-MM-DD.json. */
 export async function downloadBackup() {
@@ -116,7 +118,7 @@ export function SettingsScreen({ onDismiss, onRestored, onReplayOnboarding, vers
   const { data, username } = useStore()
   const selected = new Set(data?.prefs.genres ?? [])
   const hideShows = data?.prefs.hideShowCredits ?? true
-  const skeu = useSkeu()
+  const skin = useSkin()
   const [account, setAccount] = useState<'password' | 'delete' | null>(null)
   const [push, setPush] = useState<boolean | null>(null)
   const [update, setUpdate] = useState<'idle' | 'checking' | 'ready' | 'latest'>('idle')
@@ -179,8 +181,8 @@ export function SettingsScreen({ onDismiss, onRestored, onReplayOnboarding, vers
         </div>
         <Card style={{ padding: 18 }}>
           <div className="t-title-large" style={{ color: 'var(--ink)' }}>Stile grafico</div>
-          <div style={{ color: 'var(--muted)', fontSize: 13, lineHeight: '18px', margin: '4px 0 14px' }}>Moderno, oppure skeuomorfico: pelle cucita, ottone e bottoni lucidi.</div>
-          <SegmentedPills options={['Moderno', 'Skeuomorfico']} selected={skeu ? 1 : 0} onSelect={(i) => setSkeu(i === 1)} />
+          <div style={{ color: 'var(--muted)', fontSize: 13, lineHeight: '18px', margin: '4px 0 14px' }}>Moderno; skeuomorfico, con pelle cucita, ottone e bottoni lucidi; oppure Modern UI, il look a tessere di Windows Phone.</div>
+          <SegmentedPills options={['Moderno', 'Skeuomorfico', 'Modern UI']} selected={SKINS.indexOf(skin)} onSelect={(i) => setSkin(SKINS[i])} />
         </Card>
         <AiSetupCard />
         <Card>

@@ -373,7 +373,7 @@ export function DiscoverScreen({ kind, onKind, chromeVisible, onOpen, onAction, 
             className="status-pad" style={{ position: 'absolute', left: 0, right: 0, top: 0, paddingBottom: 12, zIndex: 3 }}>
             <motion.div className="fill" initial={false} animate={{ opacity: solid ? 1 : 0 }} transition={tween(280)} style={{ background: 'rgba(10,11,16,.95)' }} />
             <div className="row" style={{ position: 'relative', padding: '6px 16px 0 20px' }}>
-              <span className="grow" style={{ color: '#fff', fontSize: 30, fontWeight: 900, letterSpacing: -0.9, lineHeight: '40px' }}>Scopri</span>
+              <span className="grow section-title" style={{ color: '#fff', fontSize: 30, fontWeight: 900, letterSpacing: -0.9, lineHeight: '40px' }}>Scopri</span>
               <GlassIconButton icon="search" label="Cerca" onClick={onSearch} />
               <div style={{ width: 10 }} />
               <GlassIconButton icon="tune" label="Piattaforma e genere" onClick={onFilters} />

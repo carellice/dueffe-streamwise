@@ -319,3 +319,61 @@ html.skeu .dock .tab-fill {
   box-shadow: inset 0 3px 6px rgba(0, 0, 0, .75), inset 0 0 0 1px rgba(181, 154, 124, .3);
 }
 html.skeu .skeleton { background: #3D2E25; }
+
+/* ---- Modern UI skin (html.metro, lib/skin.ts): Windows Phone. Pure black, square flat tiles, one solid accent,
+   big light lowercase headings, no shadows, no gradients, no glass. ---- */
+html.metro {
+  --bg: #000000;
+  --night: 0, 0, 0;
+  --page: #000000;
+  --surface: #1F1F1F;
+  --raised: #2E2E2E;
+  --outline: #3D3D3D;
+  --ink: #FFFFFF;
+  --muted: #9A9A9A;
+  --red: #E51400;
+  --coral: #E51400;
+  --accent: #FF3B2F;
+  --secondary: #FF3B2F;
+  --primary: #E51400;
+  --outline-strong: #666666;
+  --surface-low: #141414;
+  --surface-high: #262626;
+  --surface-bright: #3D3D3D;
+  --brand: #E51400;
+  --onboarding: #000000;
+}
+html.metro, html.metro body, html.metro .app { background: #000; }
+html.metro body { font-family: 'Segoe UI', 'Segoe WP', 'Roboto', system-ui, sans-serif; }
+/* Every corner square, every shadow gone: Modern UI is flat. .metro-ring keeps the app bar's round buttons. */
+html.metro *:not(.metro-ring):not(.spinner), html.metro *::after, html.metro *::before { border-radius: 0 !important; }
+html.metro * { box-shadow: none !important; text-shadow: none !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+html.metro .t-display-small { font-size: 46px; line-height: 50px; font-weight: 300; letter-spacing: -1.2px; text-transform: lowercase; }
+html.metro .t-headline-large { font-size: 38px; line-height: 44px; font-weight: 300; letter-spacing: -0.8px; text-transform: lowercase; }
+html.metro .t-headline-medium { font-weight: 300; letter-spacing: -0.5px; text-transform: lowercase; }
+html.metro .t-headline-small { font-weight: 400; letter-spacing: -0.3px; }
+html.metro .t-title-large { font-weight: 400; letter-spacing: -0.2px; }
+html.metro .t-title-medium, html.metro .t-label-large { font-weight: 500; }
+html.metro span.section-title.section-title { font-size: 30px !important; line-height: 36px !important; font-weight: 300 !important; letter-spacing: -0.5px !important; text-transform: lowercase; }
+html.metro .glass { background: var(--surface); }
+html.metro .glass::after, html.metro .brand-glow::after, html.metro .hairline::after { display: none; }
+html.metro .brand-glow { background: var(--brand); }
+html.metro .outlined { border: 2px solid #fff; background: transparent; }
+html.metro .outlined:focus { border: 2px solid var(--primary); background: #fff; color: #000; padding: 0 16px; }
+html.metro .skeleton { background: var(--surface); }
+/* Content swings in like a turnstile, hinged on its left edge, whenever a page is shown. */
+html.metro .status-pad > *, html.metro .scroll > .col > * { animation: metro-turnstile 420ms cubic-bezier(.1, .9, .2, 1) backwards; transform-origin: left center; }
+html.metro .scroll > .col > :nth-child(2) { animation-delay: 40ms; }
+html.metro .scroll > .col > :nth-child(3) { animation-delay: 80ms; }
+html.metro .scroll > .col > :nth-child(n + 4) { animation-delay: 120ms; }
+@keyframes metro-turnstile {
+  from { opacity: 0; transform: perspective(900px) rotateY(70deg) translateX(30px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html.metro .status-pad > *, html.metro .scroll > .col > * { animation: none; }
+}
+/* Segoe has no black weight: inline 800/900 labels become semibold, as on Windows Phone. */
+html.metro [style*="font-weight: 900"], html.metro [style*="font-weight: 800"] { font-weight: 600 !important; }
+html.metro .groove { background: #000; }
+html.metro .groove span { font-weight: 400 !important; }

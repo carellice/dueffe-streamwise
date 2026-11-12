@@ -77,8 +77,6 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -317,13 +315,13 @@ class MainActivity : ComponentActivity() {
 private fun StreamWiseTheme(content: @Composable () -> Unit) {
     val dark = true
     val scheme = if (dark) darkColorScheme(
-        primary = if (Skin.skeu) Color(0xFFD23A3F) else Color(0xFFE5243A),
+        primary = when { Skin.skeu -> Color(0xFFD23A3F); Skin.metro -> Color(0xFFE51400); else -> Color(0xFFE5243A) },
         onPrimary = Color.White,
-        primaryContainer = if (Skin.skeu) Color(0xFF4A2A1E) else Color(0xFF3B161B),
-        onPrimaryContainer = Color(0xFFFFDAD2),
+        primaryContainer = when { Skin.skeu -> Color(0xFF4A2A1E); Skin.metro -> Color(0xFF2E2E2E); else -> Color(0xFF3B161B) },
+        onPrimaryContainer = if (Skin.metro) Color.White else Color(0xFFFFDAD2),
         secondary = SoftCrimson,
         onSecondary = Color(0xFF3A0E06),
-        secondaryContainer = if (Skin.skeu) Color(0xFF3F2C1E) else Color(0xFF331D20),
+        secondaryContainer = when { Skin.skeu -> Color(0xFF3F2C1E); Skin.metro -> Color(0xFF2E2E2E); else -> Color(0xFF331D20) },
         onSecondaryContainer = Color(0xFFFFDAD2),
         tertiary = Sw.Amber,
         onTertiary = Color(0xFF3A2600),
@@ -337,13 +335,13 @@ private fun StreamWiseTheme(content: @Composable () -> Unit) {
         onSurfaceVariant = Sw.Muted,
         surfaceTint = Color.Transparent,
         surfaceDim = Sw.Background,
-        surfaceBright = if (Skin.skeu) Color(0xFF4A3A2F) else Color(0xFF2A2E39),
-        surfaceContainerLowest = if (Skin.skeu) Color(0xFF120C09) else Color(0xFF07080C),
-        surfaceContainerLow = if (Skin.skeu) Color(0xFF261B16) else Color(0xFF111319),
+        surfaceBright = when { Skin.skeu -> Color(0xFF4A3A2F); Skin.metro -> Color(0xFF3D3D3D); else -> Color(0xFF2A2E39) },
+        surfaceContainerLowest = when { Skin.skeu -> Color(0xFF120C09); Skin.metro -> Color.Black; else -> Color(0xFF07080C) },
+        surfaceContainerLow = when { Skin.skeu -> Color(0xFF261B16); Skin.metro -> Color(0xFF141414); else -> Color(0xFF111319) },
         surfaceContainer = Sw.Surface,
-        surfaceContainerHigh = if (Skin.skeu) Color(0xFF35281F) else Color(0xFF1A1D26),
+        surfaceContainerHigh = when { Skin.skeu -> Color(0xFF35281F); Skin.metro -> Color(0xFF262626); else -> Color(0xFF1A1D26) },
         surfaceContainerHighest = Sw.Raised,
-        outline = if (Skin.skeu) Color(0xFF7A6250) else Color(0xFF4B505E),
+        outline = when { Skin.skeu -> Color(0xFF7A6250); Skin.metro -> Color(0xFF666666); else -> Color(0xFF4B505E) },
         outlineVariant = Sw.Outline,
         inversePrimary = Color(0xFFB3261E),
         error = Color(0xFFFF6B7D)
@@ -378,7 +376,16 @@ private fun StreamWiseTheme(content: @Composable () -> Unit) {
     val press = if (skeu) androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = .75f), androidx.compose.ui.geometry.Offset(0f, 2.5f), 2f) else null
     val display = if (skeu) androidx.compose.ui.text.font.FontFamily.Serif else null
     fun androidx.compose.ui.text.TextStyle.skin(serif: Boolean) = if (!skeu) this else copy(shadow = press, fontFamily = if (serif) display else fontFamily, letterSpacing = if (serif) 0.sp else letterSpacing)
-    val typography = Typography(
+    // Modern UI: big light headings and semilight titles, in the spirit of Segoe WP.
+    val typography = if (Skin.metro) Typography(
+        displaySmall = base.displaySmall.copy(fontWeight = FontWeight.Light, fontSize = 46.sp, lineHeight = 50.sp, letterSpacing = (-1.2).sp),
+        headlineLarge = base.headlineLarge.copy(fontWeight = FontWeight.Light, fontSize = 38.sp, letterSpacing = (-0.8).sp),
+        headlineMedium = base.headlineMedium.copy(fontWeight = FontWeight.Light, letterSpacing = (-0.5).sp),
+        headlineSmall = base.headlineSmall.copy(fontWeight = FontWeight.Normal, letterSpacing = (-0.3).sp),
+        titleLarge = base.titleLarge.copy(fontWeight = FontWeight.Normal, letterSpacing = (-0.2).sp),
+        titleMedium = base.titleMedium.copy(fontWeight = FontWeight.Medium),
+        labelLarge = base.labelLarge.copy(fontWeight = FontWeight.Medium)
+    ) else Typography(
         displaySmall = base.displaySmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-1.4).sp, lineHeight = 40.sp).skin(true),
         headlineLarge = base.headlineLarge.copy(fontWeight = FontWeight.Black, letterSpacing = (-0.9).sp).skin(true),
         headlineMedium = base.headlineMedium.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.5).sp).skin(true),
@@ -1118,7 +1125,7 @@ private fun AiScreen(api: TmdbApi, store: LibraryStore, onDismiss: () -> Unit, o
                         GlassIconButton(R.drawable.ic_back, "Indietro") { onDismiss() }
                         Column(Modifier.padding(start = 14.dp)) {
                             Text("INTELLIGENZA ARTIFICIALE", color = AiViolet, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp)
-                            Text("Chiedi all'IA", style = MaterialTheme.typography.headlineMedium, color = Ink)
+                            Text(metroCase("Chiedi all'IA"), style = MaterialTheme.typography.headlineMedium, color = Ink)
                         }
                     }
                 }
@@ -1375,7 +1382,7 @@ private fun HomeScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(greeting().uppercase(), color = Sw.Accent, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-                        Text("Cosa guardiamo?", style = MaterialTheme.typography.displaySmall, color = Ink, modifier = Modifier.padding(top = 4.dp))
+                        Text(metroCase("Cosa guardiamo?"), style = MaterialTheme.typography.displaySmall, color = Ink, modifier = Modifier.padding(top = 4.dp))
                     }
                     GlassIconButton(R.drawable.ic_settings, "Impostazioni", onClick = onSettings)
                 }
@@ -1591,7 +1598,7 @@ private fun DiscoverScreen(
                     .padding(bottom = 12.dp)
             ) {
                 Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Scopri", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Black, letterSpacing = (-.9).sp, modifier = Modifier.weight(1f))
+                    Text(metroCase("Scopri"), color = Color.White, fontSize = 30.sp, fontWeight = if (Skin.metro) FontWeight.Light else FontWeight.Black, letterSpacing = (-.9).sp, modifier = Modifier.weight(1f))
                     GlassIconButton(R.drawable.ic_search, "Cerca", onClick = onSearch)
                     Spacer(Modifier.width(10.dp))
                     GlassIconButton(R.drawable.ic_tune, "Piattaforma e genere", onClick = onFilters)
@@ -1646,7 +1653,7 @@ private fun LibraryScreen(
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Column(Modifier.padding(horizontal = 20.dp).padding(top = 14.dp).reveal()) {
             Text("LA TUA COLLEZIONE", color = Sw.Accent, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-            Text("Libreria", style = MaterialTheme.typography.displaySmall, color = Ink, modifier = Modifier.padding(top = 4.dp))
+            Text(metroCase("Libreria"), style = MaterialTheme.typography.displaySmall, color = Ink, modifier = Modifier.padding(top = 4.dp))
             AnimatedCount(total) { value ->
                 Text("$value titoli · ${follows.size + people.size} seguiti", color = Muted, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
             }
@@ -1835,7 +1842,7 @@ private fun Modifier.sharedSagaBounds(key: String): Modifier {
 @Composable private fun EmptyLibrary(openMovies: () -> Unit) {
     Column(Modifier.padding(horizontal = 20.dp).fillMaxWidth().reveal(120).glass(RoundedCornerShape(30.dp)).padding(24.dp)) {
         Box(Modifier.size(54.dp).brandGlow(RoundedCornerShape(18.dp), 10.dp), contentAlignment = Alignment.Center) { Icon(painterResource(R.drawable.ic_add), null, tint = Color.White, modifier = Modifier.size(28.dp)) }
-        Text("Costruisci la tua lista", style = MaterialTheme.typography.headlineMedium, color = Ink, modifier = Modifier.padding(top = 20.dp))
+        Text(metroCase("Costruisci la tua lista"), style = MaterialTheme.typography.headlineMedium, color = Ink, modifier = Modifier.padding(top = 20.dp))
         Text("Salva film e serie: StreamWise terrà il filo per te, episodio dopo episodio.", color = Muted, fontSize = 15.sp, lineHeight = 21.sp, modifier = Modifier.padding(top = 7.dp, bottom = 20.dp))
         Button(openMovies, shape = CircleShape, modifier = Modifier.height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Ink, contentColor = Night)) { Icon(painterResource(R.drawable.ic_compass), null); Spacer(Modifier.width(8.dp)); Text("Esplora il catalogo", fontWeight = FontWeight.Bold) }
     }
@@ -2612,7 +2619,7 @@ private fun rememberArtworkSourceKey(media: Models.Media): String =
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-private fun SharedArtworkSource(media: Models.Media, sourceKey: String, modifier: Modifier, shape: RoundedCornerShape, url: String = media.poster.ifBlank { media.backdrop }) {
+private fun SharedArtworkSource(media: Models.Media, sourceKey: String, modifier: Modifier, shape: androidx.compose.foundation.shape.RoundedCornerShape, url: String = media.poster.ifBlank { media.backdrop }) {
     val transitionScope = LocalSharedTransitionScope.current
     val hiddenArtworkKeys = LocalHiddenArtworkKeys.current
     val closingArtworkKey = LocalClosingArtworkKey.current
@@ -3672,7 +3679,7 @@ private fun ReactionDialog(title: String, onChoice: (Boolean) -> Unit, onDismiss
                 Box(Modifier.size(58.dp).crimsonGlow(CircleShape, 10.dp), contentAlignment = Alignment.Center) {
                     Icon(painterResource(R.drawable.ic_check), null, tint = Color.White, modifier = Modifier.size(29.dp))
                 }
-                Text("Ti è piaciuto?", style = MaterialTheme.typography.headlineMedium, color = Ink,
+                Text(metroCase("Ti è piaciuto?"), style = MaterialTheme.typography.headlineMedium, color = Ink,
                     modifier = Modifier.padding(top = 18.dp))
                 Text(if (alreadyWatched) "Aggiorna il tuo voto per “$title”." else "Scegli per completare “$title” e rendere i consigli più tuoi.", color = Muted,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 21.sp,
@@ -3770,7 +3777,7 @@ private fun SearchScreen(api: TmdbApi, store: LibraryStore, refresh: Int, onDism
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
                 Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     GlassIconButton(R.drawable.ic_back, "Indietro") { closeSearch() }
-                    Text("Cerca", style = MaterialTheme.typography.headlineLarge, color = Ink, modifier = Modifier.padding(start = 14.dp))
+                    Text(metroCase("Cerca"), style = MaterialTheme.typography.headlineLarge, color = Ink, modifier = Modifier.padding(start = 14.dp))
                 }
                 Row(
                     Modifier.fillMaxWidth().padding(top = 18.dp).height(58.dp).glass(RoundedCornerShape(29.dp), .9f).padding(start = 18.dp, end = 8.dp),
@@ -4823,7 +4830,7 @@ private fun SettingsScreen(
                             Icon(painterResource(R.drawable.ic_back), "Chiudi", tint = MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                         Column(Modifier.padding(start = 14.dp)) {
-                            Text("Impostazioni", style = MaterialTheme.typography.headlineLarge, color = Ink)
+                            Text(metroCase("Impostazioni"), style = MaterialTheme.typography.headlineLarge, color = Ink)
                             Text("Rendi StreamWise più tua", color = Muted)
                         }
                     }
@@ -4838,7 +4845,7 @@ private fun SettingsScreen(
                             Surface(color = Color.Transparent, shape = RoundedCornerShape(18.dp), modifier = Modifier.size(52.dp).crimsonGlow(RoundedCornerShape(18.dp), 7.dp)) {
                                 Icon(painterResource(R.drawable.ic_sparkles), null, tint = Color.White, modifier = Modifier.padding(14.dp))
                             }
-                            Text("I tuoi generi", style = MaterialTheme.typography.headlineMedium, color = Ink, modifier = Modifier.padding(top = 18.dp))
+                            Text(metroCase("I tuoi generi"), style = MaterialTheme.typography.headlineMedium, color = Ink, modifier = Modifier.padding(top = 18.dp))
                             Text("Scegli cosa ami: i cataloghi daranno più spazio ai tuoi gusti.", color = Muted, lineHeight = 21.sp, modifier = Modifier.padding(top = 6.dp))
                         }
                     }
@@ -4879,8 +4886,9 @@ private fun SettingsScreen(
                     Surface(color = Panel, shape = RoundedCornerShape(24.dp), border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                         Column(Modifier.padding(18.dp)) {
                             Text("Stile grafico", style = MaterialTheme.typography.titleLarge, color = Ink)
-                            Text("Moderno, oppure skeuomorfico: pelle cucita, ottone e bottoni lucidi.", color = Muted, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp))
-                            SegmentedPills(listOf("Moderno", "Skeuomorfico"), if (Skin.skeu) 1 else 0, Modifier.fillMaxWidth()) { Skin.set(context, it == 1) }
+                            Text("Moderno; skeuomorfico, con pelle cucita, ottone e bottoni lucidi; oppure Modern UI, il look a tessere di Windows Phone.", color = Muted, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp))
+                            val skins = listOf(Skin.MODERN, Skin.SKEU, Skin.METRO)
+                            SegmentedPills(listOf("Moderno", "Skeuomorfico", "Modern UI"), skins.indexOf(Skin.current), Modifier.fillMaxWidth()) { Skin.set(context, skins[it]) }
                         }
                     }
                 }
@@ -5036,7 +5044,7 @@ private fun FilterScreen(type: String, api: TmdbApi, store: LibraryStore, onDism
                         item {
                             Column(Modifier.reveal()) {
                                 Text("ESPLORA", color = Sw.Accent, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-                                Text("Cosa ti va\ndi vedere?", style = MaterialTheme.typography.displaySmall, color = Ink, modifier = Modifier.padding(top = 4.dp))
+                                Text(metroCase("Cosa ti va\ndi vedere?"), style = MaterialTheme.typography.displaySmall, color = Ink, modifier = Modifier.padding(top = 4.dp))
                                 Text("Scegli piattaforme e generi: ti mostro solo i titoli che fanno per te.", color = Muted, fontSize = 15.sp, lineHeight = 21.sp, modifier = Modifier.padding(top = 8.dp))
                             }
                         }
@@ -5103,7 +5111,7 @@ private fun FilterScreen(type: String, api: TmdbApi, store: LibraryStore, onDism
                     Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         GlassIconButton(R.drawable.ic_back, "Modifica filtri") { showingResults = false }
                         Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
-                            Text("Risultati", style = MaterialTheme.typography.headlineMedium, color = Ink)
+                            Text(metroCase("Risultati"), style = MaterialTheme.typography.headlineMedium, color = Ink)
                             AnimatedCount(results.size) { Text("$it ${if (kind == "tv") "serie" else "film"} trovati", color = Muted, fontSize = 13.sp) }
                         }
                         GlassIconButton(R.drawable.ic_tune, "Modifica filtri") { showingResults = false }
@@ -5266,7 +5274,7 @@ private fun AdvisorSheet(api: TmdbApi, store: LibraryStore, libraryOnly: Boolean
                     Icon(painterResource(R.drawable.ic_sparkles), null, tint = Color.White, modifier = Modifier.padding(17.dp))
                 }
                 Column(Modifier.padding(start = 16.dp).weight(1f)) {
-                    Text("Scegli per me", style = MaterialTheme.typography.headlineLarge, color = Ink)
+                    Text(metroCase("Scegli per me"), style = MaterialTheme.typography.headlineLarge, color = Ink)
                     Text(if (libraryOnly) "Una proposta casuale dalla tua lista." else "Una proposta casuale dal catalogo, su misura per te.",
                         color = Muted, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 3.dp))
                 }
@@ -5736,7 +5744,7 @@ private fun TvGuideScreen(api: TmdbApi, dateString: String, onDate: (String) -> 
                         PulsingDot(LikeGreen, size = 4.dp)
                         Text("IN CHIARO · DIGITALE TERRESTRE", color = LikeGreen, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp, modifier = Modifier.padding(start = 4.dp))
                     }
-                    Text("Guida TV", style = MaterialTheme.typography.displaySmall, color = Ink)
+                    Text(metroCase("Guida TV"), style = MaterialTheme.typography.displaySmall, color = Ink)
                 }
                 GlassIconButton(R.drawable.ic_calendar, "Scegli il giorno") { calendar = true }
                 Spacer(Modifier.width(10.dp))
